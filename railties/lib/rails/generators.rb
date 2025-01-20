@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-activesupport_path = File.expand_path("../../../activesupport/lib", __dir__)
-$:.unshift(activesupport_path) if File.directory?(activesupport_path) && !$:.include?(activesupport_path)
-
 require "thor/group"
 require "rails/command"
 
@@ -33,7 +30,7 @@ module Rails
       rails: {
         actions: "-a",
         orm: "-o",
-        javascripts: "-j",
+        javascripts: ["-j", "--js"],
         resource_controller: "-c",
         scaffold_controller: "-c",
         stylesheets: "-y",
@@ -62,6 +59,10 @@ module Rails
         template_engine: :erb
       }
     }
+
+    # We need to store the RAILS_DEV_PATH in a constant, otherwise the path
+    # can change when we FileUtils.cd.
+    RAILS_DEV_PATH = File.expand_path("../../..", __dir__) # :nodoc:
 
     class << self
       def configure!(config) # :nodoc:
@@ -93,14 +94,14 @@ module Rails
       end
 
       # Hold configured generators fallbacks. If a plugin developer wants a
-      # generator group to fallback to another group in case of missing generators,
+      # generator group to fall back to another group in case of missing generators,
       # they can add a fallback.
       #
-      # For example, shoulda is considered a test_framework and is an extension
-      # of test_unit. However, most part of shoulda generators are similar to
-      # test_unit ones.
+      # For example, shoulda is considered a +test_framework+ and is an extension
+      # of +test_unit+. However, most part of shoulda generators are similar to
+      # +test_unit+ ones.
       #
-      # Shoulda then can tell generators to search for test_unit generators when
+      # Shoulda then can tell generators to search for +test_unit+ generators when
       # some of them are not available by adding a fallback:
       #
       #   Rails::Generators.fallbacks[:shoulda] = :test_unit
@@ -154,8 +155,11 @@ module Rails
             "#{template}:scaffold",
             "#{template}:mailer",
             "action_text:install",
-            "action_mailbox:install"
-          ]
+            "action_mailbox:install",
+            "devcontainer"
+          ].tap do |h|
+            h << "test_unit" if test.to_s != "test_unit"
+          end
         end
       end
 
@@ -166,7 +170,8 @@ module Rails
 
       # Show help message with available generators.
       def help(command = "generate")
-        puts "Usage: rails #{command} GENERATOR [args] [options]"
+        puts "Usage:"
+        puts "  bin/rails #{command} GENERATOR [args] [options]"
         puts
         puts "General options:"
         puts "  -h, [--help]     # Print generator's options and usage"
@@ -204,7 +209,6 @@ module Rails
         rails.map! { |n| n.delete_prefix("rails:") }
         rails.delete("app")
         rails.delete("plugin")
-        rails.delete("encrypted_secrets")
         rails.delete("encrypted_file")
         rails.delete("encryption_key_file")
         rails.delete("master_key")
@@ -253,8 +257,8 @@ module Rails
         invoke_fallbacks_for(name, base) || invoke_fallbacks_for(context, name)
       end
 
-      # Receives a namespace, arguments and the behavior to invoke the generator.
-      # It's used as the default entry point for generate, destroy and update
+      # Receives a namespace, arguments, and the behavior to invoke the generator.
+      # It's used as the default entry point for generate, destroy, and update
       # commands.
       def invoke(namespace, args = ARGV, config = {})
         names = namespace.to_s.split(":")
@@ -264,12 +268,13 @@ module Rails
           run_after_generate_callback if config[:behavior] == :invoke
         else
           options = sorted_groups.flat_map(&:last)
-          error   = Command::Base::CorrectableError.new("Could not find generator '#{namespace}'.", namespace, options)
+          error = Command::CorrectableNameError.new("Could not find generator '#{namespace}'.", namespace, options)
 
           puts <<~MSG
-            #{error.message}
+            #{error.detailed_message}
             Run `bin/rails generate --help` for more options.
           MSG
+          exit 1
         end
       end
 

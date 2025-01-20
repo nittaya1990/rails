@@ -4,6 +4,10 @@ require "active_model/attribute"
 
 module ActiveModel
   class Attribute # :nodoc:
+    def with_user_default(value)
+      UserProvidedDefault.new(name, value, type, self.is_a?(FromDatabase) ? self : original_attribute)
+    end
+
     class UserProvidedDefault < FromUser # :nodoc:
       def initialize(name, value, type, database_default)
         @user_provided_value = value
@@ -20,6 +24,16 @@ module ActiveModel
 
       def with_type(type)
         self.class.new(name, user_provided_value, type, original_attribute)
+      end
+
+      def dup_or_share # :nodoc:
+        # Can't elide dup when the default is a Proc
+        # See Attribute#dup_or_share
+        if @user_provided_value.is_a?(Proc)
+          dup
+        else
+          super
+        end
       end
 
       def marshal_dump

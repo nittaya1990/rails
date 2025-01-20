@@ -4,45 +4,37 @@ require "cases/encryption/helper"
 require "models/book"
 
 class ActiveRecord::Encryption::SchemeTest < ActiveRecord::EncryptionTestCase
-  test "validates config options when declaring encrypted attributes" do
+  test "validates config options when using encrypted attributes" do
     assert_invalid_declaration deterministic: false, ignore_case: true
     assert_invalid_declaration key: "1234", key_provider: ActiveRecord::Encryption::DerivedSecretKeyProvider.new("my secret")
+    assert_invalid_declaration compress: false, compressor: Zlib
+    assert_invalid_declaration compressor: Zlib, encryptor: ActiveRecord::Encryption::Encryptor.new
 
     assert_valid_declaration deterministic: true
     assert_valid_declaration key: "1234"
     assert_valid_declaration key_provider: ActiveRecord::Encryption::DerivedSecretKeyProvider.new("my secret")
   end
 
-  test "validates primary_key is set for non deterministic encryption" do
-    ActiveRecord::Encryption.config.primary_key = nil
+  test "should create a encryptor well when compressor is given" do
+    MyCompressor = Class.new do
+      def self.deflate(data)
+        "deflated #{data}"
+      end
 
-    assert_raise ActiveRecord::Encryption::Errors::Configuration do
-      declare_and_use_class
+      def self.inflate(data)
+        data.sub("deflated ", "")
+      end
     end
 
-    assert_nothing_raised do
-      declare_and_use_class deterministic: true
-    end
+    type = declare_encrypts_with compressor: MyCompressor
+
+    assert_equal MyCompressor, type.scheme.to_h[:encryptor].compressor
   end
 
-  test "validates deterministic_key is set for non deterministic encryption" do
-    ActiveRecord::Encryption.config.deterministic_key = nil
+  test "should create a encryptor well when compress is false" do
+    type = declare_encrypts_with compress: false
 
-    assert_raise ActiveRecord::Encryption::Errors::Configuration do
-      declare_and_use_class deterministic: true
-    end
-
-    assert_nothing_raised do
-      declare_and_use_class
-    end
-  end
-
-  test "validates key_derivation_salt is set" do
-    ActiveRecord::Encryption.config.key_derivation_salt = nil
-
-    assert_raise ActiveRecord::Encryption::Errors::Configuration do
-      declare_and_use_class
-    end
+    assert_not type.scheme.to_h[:encryptor].compress?
   end
 
   private
@@ -58,17 +50,9 @@ class ActiveRecord::Encryption::SchemeTest < ActiveRecord::EncryptionTestCase
       end
     end
 
-    def declare_and_use_class(**options)
-      encrypted_book_class = Class.new(Book) do
-        encrypts :name, **options
-      end
-
-      encrypted_book_class.create! name: "Some name"
-    end
-
     def declare_encrypts_with(options)
       Class.new(Book) do
         encrypts :name, **options
-      end
+      end.type_for_attribute(:name)
     end
 end

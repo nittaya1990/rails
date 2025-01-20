@@ -1,4 +1,4 @@
-**DO NOT READ THIS FILE ON GITHUB, GUIDES ARE PUBLISHED ON https://guides.rubyonrails.org.**
+**DO NOT READ THIS FILE ON GITHUB, GUIDES ARE PUBLISHED ON <https://guides.rubyonrails.org>.**
 
 Ruby on Rails 2.3 Release Notes
 ===============================
@@ -185,7 +185,7 @@ developers = Developer.find(:all, :group => "salary",
 
 MySQL supports a reconnect flag in its connections - if set to true, then the client will try reconnecting to the server before giving up in case of a lost connection. You can now set `reconnect = true` for your MySQL connections in `database.yml` to get this behavior from a Rails application. The default is `false`, so the behavior of existing applications doesn't change.
 
-* Lead Contributor: [Dov Murik](http://twitter.com/dubek)
+* Lead Contributor: [Dov Murik](http://x.com/dubek)
 * More information:
     * [Controlling Automatic Reconnection Behavior](http://dev.mysql.com/doc/refman/5.6/en/auto-reconnect.html)
     * [MySQL auto-reconnect revisited](http://groups.google.com/group/rubyonrails-core/browse_thread/thread/49d2a7e9c96cb9f4)
@@ -266,7 +266,7 @@ end
 
 ### More Efficient Routing
 
-There are a couple of significant routing changes in Rails 2.3. The `formatted_` route helpers are gone, in favor just passing in `:format` as an option. This cuts down the route generation process by 50% for any resource - and can save a substantial amount of memory (up to 100MB on large applications). If your code uses the `formatted_` helpers, it will still work for the time being - but that behavior is deprecated and your application will be more efficient if you rewrite those routes using the new standard. Another big change is that Rails now supports multiple routing files, not just `routes.rb`. You can use `RouteSet#add_configuration_file` to bring in more routes at any time - without clearing the currently-loaded routes. While this change is most useful for Engines, you can use it in any application that needs to load routes in batches.
+There are a couple of significant routing changes in Rails 2.3. The `formatted_` route helpers are gone, in favor just passing in `:format` as an option. This cuts down the route generation process by 50% for any resource - and can save a substantial amount of memory (up to 100MB on large applications). If your code uses the `formatted_` helpers, it will still work for the time being - but that behavior is deprecated and your application will be more efficient if you rewrite those routes using the new standard. Another big change is that Rails now supports multiple routing files, not just `routes.rb`. You can use `RouteSet#add_configuration_file` to bring in more routes at any time - without clearing the currently loaded routes. While this change is most useful for Engines, you can use it in any application that needs to load routes in batches.
 
 * Lead Contributors: [Aaron Batalion](http://blog.hungrymachine.com/)
 
@@ -365,7 +365,7 @@ You can write this view in Rails 2.3:
       <% unless order_form.object.new_record? %>
         <div>
           <%= order_form.label :_delete, 'Remove:' %>
-          <%= order_form.check_box :_delete %>
+          <%= order_form.checkbox :_delete %>
         </div>
       <% end %>
     </p>
@@ -469,7 +469,7 @@ options_from_collection_for_select(@product.sizes, :name, :id, :disabled => lamb
 ```
 
 * Lead Contributor: [Tekin Suleyman](http://tekin.co.uk/)
-* More Information: [New in rails 2.3 - disabled option tags and lambdas for selecting and disabling options from collections](https://tekin.co.uk/2009/03/new-in-rails-23-disabled-option-tags-and-lambdas-for-selecting-and-disabling-options-from-collections)
+* More Information: [New in Rails 2.3 - disabled option tags and lambdas for selecting and disabling options from collections](https://tekin.co.uk/2009/03/new-in-rails-23-disabled-option-tags-and-lambdas-for-selecting-and-disabling-options-from-collections)
 
 ### A Note About Template Loading
 
@@ -503,7 +503,7 @@ A lot of folks have adopted the notion of using try() to attempt operations on o
 
 ### Object#tap Backport
 
-`Object#tap` is an addition to [Ruby 1.9](http://www.ruby-doc.org/core-1.9/classes/Object.html#M000309) and 1.8.7 that is similar to the `returning` method that Rails has had for a while: it yields to a block, and then returns the object that was yielded. Rails now includes code to make this available under older versions of Ruby as well.
+`Object#tap` is an addition to [Ruby 1.9](https://docs.ruby-lang.org/en/master/Kernel.html#method-i-tap) and 1.8.7 that is similar to the `returning` method that Rails has had for a while: it yields to a block, and then returns the object that was yielded. Rails now includes code to make this available under older versions of Ruby as well.
 
 ### Swappable Parsers for XMLmini
 

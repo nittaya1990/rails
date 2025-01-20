@@ -306,6 +306,16 @@ class TimeZoneTest < ActiveSupport::TestCase
     assert_equal "invalid date", exception.message
   end
 
+  def test_iso8601_with_nil
+    zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
+
+    exception = assert_raises(ArgumentError) do
+      zone.iso8601(nil)
+    end
+
+    assert_equal "invalid date", exception.message
+  end
+
   def test_iso8601_with_missing_time_components
     zone = ActiveSupport::TimeZone["Eastern Time (US & Canada)"]
     twz = zone.iso8601("1999-12-31")
@@ -392,7 +402,7 @@ class TimeZoneTest < ActiveSupport::TestCase
   end
 
   def test_parse_string_with_timezone
-    (-11..13).each do |timezone_offset|
+    (-12..13).each do |timezone_offset|
       zone = ActiveSupport::TimeZone[timezone_offset]
       twz = zone.parse("1999-12-31 19:00:00")
       assert_equal twz, zone.parse(twz.to_s)
@@ -865,5 +875,49 @@ class TimeZoneTest < ActiveSupport::TestCase
     payload = "--- !ruby/object:ActiveSupport::TimeZone\nname: Pacific/Honolulu\n"
     loaded = YAML.respond_to?(:unsafe_load) ? YAML.unsafe_load(payload) : YAML.load(payload)
     assert_equal(ActiveSupport::TimeZone["Pacific/Honolulu"], loaded)
+  end
+
+  def test_abbr
+    zone = ActiveSupport::TimeZone["America/Toronto"]
+    assert_equal "EST", zone.abbr(Time.utc(2000, 4, 2, 6))
+    assert_equal "EDT", zone.abbr(Time.utc(2000, 4, 2, 7))
+    assert_equal "EDT", zone.abbr(Time.utc(2000, 4, 2, 8))
+    assert_equal "EDT", zone.abbr(Time.utc(2000, 10, 29, 5))
+    assert_equal "EST", zone.abbr(Time.utc(2000, 10, 29, 6))
+    assert_equal "EST", zone.abbr(Time.utc(2000, 10, 29, 7))
+  end
+
+  def test_dst
+    zone = ActiveSupport::TimeZone["America/Toronto"]
+    assert_equal false, zone.dst?(Time.utc(2000, 4, 2, 6))
+    assert_equal true,  zone.dst?(Time.utc(2000, 4, 2, 7))
+    assert_equal true,  zone.dst?(Time.utc(2000, 4, 2, 8))
+    assert_equal true,  zone.dst?(Time.utc(2000, 10, 29, 5))
+    assert_equal false, zone.dst?(Time.utc(2000, 10, 29, 6))
+    assert_equal false, zone.dst?(Time.utc(2000, 10, 29, 7))
+  end
+
+  def test_works_as_ruby_time_zone
+    zone = ActiveSupport::TimeZone["America/Toronto"]
+    time = Time.new(2000, 1, 1, 1, in: zone)
+    assert_same zone, time.zone
+    assert_equal "2000-01-01T01:00:00-05:00", time.iso8601
+    assert_equal(-18000, time.utc_offset)
+    assert_equal "EST", time.strftime("%Z")
+    assert_equal false, time.isdst
+
+    time = Time.new(2000, 6, 1, 1, in: zone)
+    assert_same zone, time.zone
+    assert_equal "2000-06-01T01:00:00-04:00", time.iso8601
+    assert_equal(-14400, time.utc_offset)
+    assert_equal "EDT", time.strftime("%Z")
+    assert_equal true, time.isdst
+
+    time = Time.at(959835600, in: zone)
+    assert_same zone, time.zone
+    assert_equal "2000-06-01T01:00:00-04:00", time.iso8601
+    assert_equal(-14400, time.utc_offset)
+    assert_equal "EDT", time.strftime("%Z")
+    assert_equal true, time.isdst
   end
 end

@@ -13,6 +13,8 @@ class ActionText::Generators::InstallGeneratorTest < Rails::Generators::TestCase
     FileUtils.mkdir_p("#{destination_root}/app/javascript")
     FileUtils.touch("#{destination_root}/app/javascript/application.js")
 
+    FileUtils.mkdir_p("#{destination_root}/app/assets/stylesheets")
+
     FileUtils.mkdir_p("#{destination_root}/config")
     FileUtils.touch("#{destination_root}/config/importmap.rb")
   end

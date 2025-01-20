@@ -1,53 +1,117 @@
 # frozen_string_literal: true
 
 require "active_support/core_ext/big_decimal/conversions"
-require "active_support/multibyte/chars"
 
 module ActiveRecord
   module ConnectionAdapters # :nodoc:
+    # = Active Record Connection Adapters \Quoting
     module Quoting
+      extend ActiveSupport::Concern
+
+      module ClassMethods # :nodoc:
+        # Regexp for column names (with or without a table name prefix).
+        # Matches the following:
+        #
+        #   "#{table_name}.#{column_name}"
+        #   "#{column_name}"
+        def column_name_matcher
+          /
+            \A
+            (
+              (?:
+                # table_name.column_name | function(one or no argument)
+                ((?:\w+\.)?\w+ | \w+\((?:|\g<2>)\))
+              )
+              (?:(?:\s+AS)?\s+\w+)?
+            )
+            (?:\s*,\s*\g<1>)*
+            \z
+          /ix
+        end
+
+        # Regexp for column names with order (with or without a table name prefix,
+        # with or without various order modifiers). Matches the following:
+        #
+        #   "#{table_name}.#{column_name}"
+        #   "#{table_name}.#{column_name} #{direction}"
+        #   "#{table_name}.#{column_name} #{direction} NULLS FIRST"
+        #   "#{table_name}.#{column_name} NULLS LAST"
+        #   "#{column_name}"
+        #   "#{column_name} #{direction}"
+        #   "#{column_name} #{direction} NULLS FIRST"
+        #   "#{column_name} NULLS LAST"
+        def column_name_with_order_matcher
+          /
+            \A
+            (
+              (?:
+                # table_name.column_name | function(one or no argument)
+                ((?:\w+\.)?\w+ | \w+\((?:|\g<2>)\))
+              )
+              (?:\s+ASC|\s+DESC)?
+              (?:\s+NULLS\s+(?:FIRST|LAST))?
+            )
+            (?:\s*,\s*\g<1>)*
+            \z
+          /ix
+        end
+
+        # Quotes the column name. Must be implemented by subclasses
+        def quote_column_name(column_name)
+          raise NotImplementedError
+        end
+
+        # Quotes the table name. Defaults to column name quoting.
+        def quote_table_name(table_name)
+          quote_column_name(table_name)
+        end
+      end
+
       # Quotes the column value to help prevent
       # {SQL injection attacks}[https://en.wikipedia.org/wiki/SQL_injection].
       def quote(value)
-        if value.is_a?(Base)
-          ActiveSupport::Deprecation.warn(<<~MSG)
-            Passing an Active Record object to `quote` directly is deprecated
-            and will be no longer quoted as id value in Rails 7.0.
-          MSG
-          value = value.id_for_database
+        case value
+        when String, Symbol, ActiveSupport::Multibyte::Chars
+          "'#{quote_string(value.to_s)}'"
+        when true       then quoted_true
+        when false      then quoted_false
+        when nil        then "NULL"
+        # BigDecimals need to be put in a non-normalized form and quoted.
+        when BigDecimal then value.to_s("F")
+        when Numeric then value.to_s
+        when Type::Binary::Data then quoted_binary(value)
+        when Type::Time::Value then "'#{quoted_time(value)}'"
+        when Date, Time then "'#{quoted_date(value)}'"
+        when Class      then "'#{value}'"
+        else
+          raise TypeError, "can't quote #{value.class.name}"
         end
-
-        _quote(value)
       end
 
       # Cast a +value+ to a type that the database understands. For example,
       # SQLite does not understand dates, so this method will convert a Date
       # to a String.
-      def type_cast(value, column = nil)
-        if value.is_a?(Base)
-          ActiveSupport::Deprecation.warn(<<~MSG)
-            Passing an Active Record object to `type_cast` directly is deprecated
-            and will be no longer type casted as id value in Rails 7.0.
-          MSG
-          value = value.id_for_database
+      def type_cast(value)
+        case value
+        when Symbol, Type::Binary::Data, ActiveSupport::Multibyte::Chars
+          value.to_s
+        when true       then unquoted_true
+        when false      then unquoted_false
+        # BigDecimals need to be put in a non-normalized form and quoted.
+        when BigDecimal then value.to_s("F")
+        when nil, Numeric, String then value
+        when Type::Time::Value then quoted_time(value)
+        when Date, Time then quoted_date(value)
+        else
+          raise TypeError, "can't cast #{value.class.name}"
         end
-
-        if column
-          ActiveSupport::Deprecation.warn(<<~MSG)
-            Passing a column to `type_cast` is deprecated and will be removed in Rails 7.0.
-          MSG
-          type = lookup_cast_type_from_column(column)
-          value = type.serialize(value)
-        end
-
-        _type_cast(value)
       end
 
-      # Quote a value to be used as a bound parameter of unknown type. For example,
+      # Cast a value to be used as a bound parameter of unknown type. For example,
       # MySQL might perform dangerous castings when comparing a string to a number,
       # so this method will cast numbers to string.
-      def quote_bound_value(value)
-        _quote(value)
+      def cast_bound_value(value) # :nodoc:
+        value
       end
 
       # If you are having to call this function, you are likely doing something
@@ -69,20 +133,20 @@ module ActiveRecord
         s.gsub("\\", '\&\&').gsub("'", "''") # ' (for ruby-mode)
       end
 
-      # Quotes the column name. Defaults to no quoting.
+      # Quotes the column name.
       def quote_column_name(column_name)
-        column_name.to_s
+        self.class.quote_column_name(column_name)
       end
 
-      # Quotes the table name. Defaults to column name quoting.
+      # Quotes the table name.
       def quote_table_name(table_name)
-        quote_column_name(table_name)
+        self.class.quote_table_name(table_name)
       end
 
       # Override to return the quoted table name for assignment. Defaults to
       # table quoting.
       #
-      # This works for mysql2 where table.column can be used to
+      # This works for MySQL where table.column can be used to
       # resolve ambiguity.
       #
       # We override this in the sqlite3 and postgresql adapters to use only
@@ -120,14 +184,14 @@ module ActiveRecord
       # if the value is a Time responding to usec.
       def quoted_date(value)
         if value.acts_like?(:time)
-          if ActiveRecord.default_timezone == :utc
+          if default_timezone == :utc
             value = value.getutc if !value.utc?
           else
             value = value.getlocal
           end
         end
 
-        result = value.to_s(:db)
+        result = value.to_fs(:db)
         if value.respond_to?(:usec) && value.usec > 0
           result << "." << sprintf("%06d", value.usec)
         else
@@ -145,113 +209,31 @@ module ActiveRecord
       end
 
       def sanitize_as_sql_comment(value) # :nodoc:
-        value.to_s.gsub(%r{ (/ (?: | \g<1>) \*) \+? \s* | \s* (\* (?: | \g<2>) /) }x, "")
+        # Sanitize a string to appear within a SQL comment
+        # For compatibility, this also surrounding "/*+", "/*", and "*/"
+        # charcacters, possibly with single surrounding space.
+        # Then follows that by replacing any internal "*/" or "/*" with
+        # "* /" or "/ *"
+        comment = value.to_s.dup
+        comment.gsub!(%r{\A\s*/\*\+?\s?|\s?\*/\s*\Z}, "")
+        comment.gsub!("*/", "* /")
+        comment.gsub!("/*", "/ *")
+        comment
       end
-
-      def column_name_matcher # :nodoc:
-        COLUMN_NAME
-      end
-
-      def column_name_with_order_matcher # :nodoc:
-        COLUMN_NAME_WITH_ORDER
-      end
-
-      # Regexp for column names (with or without a table name prefix).
-      # Matches the following:
-      #
-      #   "#{table_name}.#{column_name}"
-      #   "#{column_name}"
-      COLUMN_NAME = /
-        \A
-        (
-          (?:
-            # table_name.column_name | function(one or no argument)
-            ((?:\w+\.)?\w+) | \w+\((?:|\g<2>)\)
-          )
-          (?:(?:\s+AS)?\s+\w+)?
-        )
-        (?:\s*,\s*\g<1>)*
-        \z
-      /ix
-
-      # Regexp for column names with order (with or without a table name prefix,
-      # with or without various order modifiers). Matches the following:
-      #
-      #   "#{table_name}.#{column_name}"
-      #   "#{table_name}.#{column_name} #{direction}"
-      #   "#{table_name}.#{column_name} #{direction} NULLS FIRST"
-      #   "#{table_name}.#{column_name} NULLS LAST"
-      #   "#{column_name}"
-      #   "#{column_name} #{direction}"
-      #   "#{column_name} #{direction} NULLS FIRST"
-      #   "#{column_name} NULLS LAST"
-      COLUMN_NAME_WITH_ORDER = /
-        \A
-        (
-          (?:
-            # table_name.column_name | function(one or no argument)
-            ((?:\w+\.)?\w+) | \w+\((?:|\g<2>)\)
-          )
-          (?:\s+ASC|\s+DESC)?
-          (?:\s+NULLS\s+(?:FIRST|LAST))?
-        )
-        (?:\s*,\s*\g<1>)*
-        \z
-      /ix
-
-      private_constant :COLUMN_NAME, :COLUMN_NAME_WITH_ORDER
 
       private
         def type_casted_binds(binds)
-          case binds.first
-          when Array
-            binds.map { |column, value| type_cast(value, column) }
-          else
-            binds.map do |value|
-              if ActiveModel::Attribute === value
-                type_cast(value.value_for_database)
-              else
-                type_cast(value)
-              end
+          binds&.map do |value|
+            if ActiveModel::Attribute === value
+              type_cast(value.value_for_database)
+            else
+              type_cast(value)
             end
           end
         end
 
         def lookup_cast_type(sql_type)
           type_map.lookup(sql_type)
-        end
-
-        def _quote(value)
-          case value
-          when String, Symbol, ActiveSupport::Multibyte::Chars
-            "'#{quote_string(value.to_s)}'"
-          when true       then quoted_true
-          when false      then quoted_false
-          when nil        then "NULL"
-          # BigDecimals need to be put in a non-normalized form and quoted.
-          when BigDecimal then value.to_s("F")
-          when Numeric, ActiveSupport::Duration then value.to_s
-          when Type::Binary::Data then quoted_binary(value)
-          when Type::Time::Value then "'#{quoted_time(value)}'"
-          when Date, Time then "'#{quoted_date(value)}'"
-          when Class      then "'#{value}'"
-          else raise TypeError, "can't quote #{value.class.name}"
-          end
-        end
-
-        def _type_cast(value)
-          case value
-          when Symbol, ActiveSupport::Multibyte::Chars, Type::Binary::Data
-            value.to_s
-          when true       then unquoted_true
-          when false      then unquoted_false
-          # BigDecimals need to be put in a non-normalized form and quoted.
-          when BigDecimal then value.to_s("F")
-          when nil, Numeric, String then value
-          when Type::Time::Value then quoted_time(value)
-          when Date, Time then quoted_date(value)
-          else raise TypeError, "can't cast #{value.class.name}"
-          end
         end
     end
   end

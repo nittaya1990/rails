@@ -401,7 +401,7 @@ class ActionsTest < Rails::Generators::TestCase
 
   def test_initializer_should_write_date_to_file_in_config_initializers
     action :initializer, "constants.rb", "MY_CONSTANT = 42"
-    assert_file "config/initializers/constants.rb", "MY_CONSTANT = 42\n"
+    assert_initializer "constants.rb", "MY_CONSTANT = 42\n"
   end
 
   def test_initializer_should_write_date_to_file_with_block_in_config_initializers
@@ -411,7 +411,9 @@ class ActionsTest < Rails::Generators::TestCase
       end
     RUBY
     action(:initializer, "constants.rb") { code }
-    assert_file "config/initializers/constants.rb", code.strip_heredoc
+    assert_initializer "constants.rb" do |content|
+      assert_equal(content, code.strip_heredoc)
+    end
   end
 
   test "generate" do
@@ -648,6 +650,43 @@ class ActionsTest < Rails::Generators::TestCase
     ROUTING_CODE
   end
 
+  test "route with namespace option revokes route without breaking existing namespace blocks" do
+    run_generator
+    action :route, <<~ROUTING_CODE.chomp
+      namespace :baz do
+        get 'foo1'
+        namespace :qux do
+          get 'foo2'
+          namespace :hoge do
+            get 'foo3'
+          end
+        end
+        get 'bar1'
+      end
+    ROUTING_CODE
+
+    revoke :route, "get 'foo2'", namespace: %w[baz qux]
+    assert_routes <<~ROUTING_CODE.chomp
+      namespace :baz do
+        get 'foo1'
+        namespace :qux do
+          namespace :hoge do
+            get 'foo3'
+          end
+        end
+        get 'bar1'
+      end
+    ROUTING_CODE
+
+    revoke :route, "get 'foo3'", namespace: %w[baz qux hoge]
+    assert_routes <<~ROUTING_CODE.chomp
+      namespace :baz do
+        get 'foo1'
+        get 'bar1'
+      end
+    ROUTING_CODE
+  end
+
   def test_readme
     run_generator
     assert_called(Rails::Generators::AppGenerator, :source_root, times: 2, returns: destination_root) do
@@ -682,19 +721,38 @@ class ActionsTest < Rails::Generators::TestCase
   end
 
   private
-    def action(*args, **kwargs, &block)
-      capture(:stdout) { generator.send(*args, **kwargs, &block) }
+    def action(...)
+      if ENV["RAILS_LOG_TO_STDOUT"] == "true"
+        generator.send(...)
+      else
+        capture(:stdout) { generator.send(...) }
+      end
+    end
+
+    def revoke(...)
+      original_behavior, generator.behavior = generator.behavior, :revoke
+      action(...)
+    ensure
+      generator.behavior = original_behavior
     end
 
     def assert_runs(commands, config = {}, &block)
       config_matcher = ->(actual_config) do
         assert_equal config, actual_config.slice(*config.keys)
       end if config
-      args = Array(commands).map { |command| [command, *config_matcher] }
 
-      assert_called_with(generator, :run, args) do
-        block.call
+      mock = Minitest::Mock.new
+
+      Array(commands).each do |command|
+        command_matcher = Regexp.escape(command)
+        command_matcher = command_matcher.sub(/^sudo\\ /, '\A\1.*')
+        args = [/#{command_matcher}\z/, *config_matcher]
+        mock.expect(:call, nil, args)
       end
+
+      generator.stub(:run, mock, &block)
+
+      assert_mock(mock)
     end
 
     def assert_routes(*route_commands)

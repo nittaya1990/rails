@@ -8,45 +8,43 @@ module ActiveRecord
         def indexes(table_name)
           indexes = []
           current_index = nil
-          execute_and_free("SHOW KEYS FROM #{quote_table_name(table_name)}", "SCHEMA") do |result|
-            each_hash(result) do |row|
-              if current_index != row[:Key_name]
-                next if row[:Key_name] == "PRIMARY" # skip the primary key
-                current_index = row[:Key_name]
+          internal_exec_query("SHOW KEYS FROM #{quote_table_name(table_name)}", "SCHEMA").each do |row|
+            if current_index != row["Key_name"]
+              next if row["Key_name"] == "PRIMARY" # skip the primary key
+              current_index = row["Key_name"]
 
-                mysql_index_type = row[:Index_type].downcase.to_sym
-                case mysql_index_type
-                when :fulltext, :spatial
-                  index_type = mysql_index_type
-                when :btree, :hash
-                  index_using = mysql_index_type
-                end
-
-                indexes << [
-                  row[:Table],
-                  row[:Key_name],
-                  row[:Non_unique].to_i == 0,
-                  [],
-                  lengths: {},
-                  orders: {},
-                  type: index_type,
-                  using: index_using,
-                  comment: row[:Index_comment].presence
-                ]
+              mysql_index_type = row["Index_type"].downcase.to_sym
+              case mysql_index_type
+              when :fulltext, :spatial
+                index_type = mysql_index_type
+              when :btree, :hash
+                index_using = mysql_index_type
               end
 
-              if row[:Expression]
-                expression = row[:Expression]
-                expression = +"(#{expression})" unless expression.start_with?("(")
-                indexes.last[-2] << expression
-                indexes.last[-1][:expressions] ||= {}
-                indexes.last[-1][:expressions][expression] = expression
-                indexes.last[-1][:orders][expression] = :desc if row[:Collation] == "D"
-              else
-                indexes.last[-2] << row[:Column_name]
-                indexes.last[-1][:lengths][row[:Column_name]] = row[:Sub_part].to_i if row[:Sub_part]
-                indexes.last[-1][:orders][row[:Column_name]] = :desc if row[:Collation] == "D"
-              end
+              indexes << [
+                row["Table"],
+                row["Key_name"],
+                row["Non_unique"].to_i == 0,
+                [],
+                lengths: {},
+                orders: {},
+                type: index_type,
+                using: index_using,
+                comment: row["Index_comment"].presence
+              ]
+            end
+
+            if expression = row["Expression"]
+              expression = expression.gsub("\\'", "'")
+              expression = +"(#{expression})" unless expression.start_with?("(")
+              indexes.last[-2] << expression
+              indexes.last[-1][:expressions] ||= {}
+              indexes.last[-1][:expressions][expression] = expression
+              indexes.last[-1][:orders][expression] = :desc if row["Collation"] == "D"
+            else
+              indexes.last[-2] << row["Column_name"]
+              indexes.last[-1][:lengths][row["Column_name"]] = row["Sub_part"].to_i if row["Sub_part"]
+              indexes.last[-1][:orders][row["Column_name"]] = :desc if row["Collation"] == "D"
             end
           end
 
@@ -57,9 +55,9 @@ module ActiveRecord
               orders = options.delete(:orders)
               lengths = options.delete(:lengths)
 
-              columns = index[-1].map { |name|
+              columns = index[-1].to_h { |name|
                 [ name.to_sym, expressions[name] || +quote_column_name(name) ]
-              }.to_h
+              }
 
               index[-1] = add_options_for_index_columns(
                 columns, order: orders, length: lengths
@@ -67,6 +65,12 @@ module ActiveRecord
             end
 
             IndexDefinition.new(*index, **options)
+          end
+        rescue StatementInvalid => e
+          if e.message.match?(/Table '.+' doesn't exist/)
+            []
+          else
+            raise
           end
         end
 
@@ -78,6 +82,13 @@ module ActiveRecord
         end
 
         def create_table(table_name, options: default_row_format, **)
+          super
+        end
+
+        def remove_foreign_key(from_table, to_table = nil, **options)
+          # RESTRICT is by default in MySQL.
+          options.delete(:on_update) if options[:on_update] == :restrict
+          options.delete(:on_delete) if options[:on_delete] == :restrict
           super
         end
 
@@ -125,6 +136,10 @@ module ActiveRecord
           256 # https://dev.mysql.com/doc/refman/en/identifiers.html
         end
 
+        def schema_creation # :nodoc:
+          MySQL::SchemaCreation.new(self)
+        end
+
         private
           CHARSETS_OF_4BYTES_MAXLEN = ["utf8mb4", "utf16", "utf16le", "utf32"]
 
@@ -150,36 +165,56 @@ module ActiveRecord
             @default_row_format
           end
 
-          def schema_creation
-            MySQL::SchemaCreation.new(self)
+          def valid_primary_key_options
+            super + [:unsigned, :auto_increment]
           end
 
           def create_table_definition(name, **options)
             MySQL::TableDefinition.new(self, name, **options)
           end
 
-          def new_column_from_field(table_name, field)
-            type_metadata = fetch_type_metadata(field[:Type], field[:Extra])
-            default, default_function = field[:Default], nil
+          def default_type(table_name, field_name)
+            match = create_table_info(table_name)&.match(/`#{field_name}` (.+) DEFAULT ('|\d+|[A-z]+)/)
+            default_pre = match[2] if match
+
+            if default_pre == "'"
+              :string
+            elsif default_pre&.match?(/^\d+$/)
+              :integer
+            elsif default_pre&.match?(/^[A-z]+$/)
+              :function
+            end
+          end
+
+          def new_column_from_field(table_name, field, _definitions)
+            field_name = field.fetch("Field")
+            type_metadata = fetch_type_metadata(field["Type"], field["Extra"])
+            default, default_function = field["Default"], nil
 
             if type_metadata.type == :datetime && /\ACURRENT_TIMESTAMP(?:\([0-6]?\))?\z/i.match?(default)
+              default = "#{default} ON UPDATE #{default}" if /on update CURRENT_TIMESTAMP/i.match?(field["Extra"])
               default, default_function = nil, default
             elsif type_metadata.extra == "DEFAULT_GENERATED"
               default = +"(#{default})" unless default.start_with?("(")
+              default = default.gsub("\\'", "'")
               default, default_function = nil, default
-            elsif type_metadata.type == :text && default
+            elsif type_metadata.type == :text && default&.start_with?("'")
               # strip and unescape quotes
               default = default[1...-1].gsub("\\'", "'")
+            elsif default&.match?(/\A\d/)
+              # Its a number so we can skip the query to check if it is a function
+            elsif default && default_type(table_name, field_name) == :function
+              default, default_function = nil, default
             end
 
             MySQL::Column.new(
-              field[:Field],
+              field["Field"],
               default,
               type_metadata,
-              field[:Null] == "YES",
+              field["Null"] == "YES",
               default_function,
-              collation: field[:Collation],
-              comment: field[:Comment].presence
+              collation: field["Collation"],
+              comment: field["Comment"].presence
             )
           end
 
@@ -206,14 +241,15 @@ module ActiveRecord
           def data_source_sql(name = nil, type: nil)
             scope = quoted_scope(name, type: type)
 
-            sql = +"SELECT table_name FROM (SELECT * FROM information_schema.tables "
-            sql << " WHERE table_schema = #{scope[:schema]}) _subquery"
-            if scope[:type] || scope[:name]
-              conditions = []
-              conditions << "_subquery.table_type = #{scope[:type]}" if scope[:type]
-              conditions << "_subquery.table_name = #{scope[:name]}" if scope[:name]
-              sql << " WHERE #{conditions.join(" AND ")}"
+            sql = +"SELECT table_name FROM information_schema.tables"
+            sql << " WHERE table_schema = #{scope[:schema]}"
+
+            if scope[:name]
+              sql << " AND table_name = #{scope[:name]}"
+              sql << " AND table_name IN (SELECT table_name FROM information_schema.tables WHERE table_schema = #{scope[:schema]})"
             end
+
+            sql << " AND table_type = #{scope[:type]}" if scope[:type]
             sql
           end
 

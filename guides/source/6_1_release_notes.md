@@ -1,4 +1,4 @@
-**DO NOT READ THIS FILE ON GITHUB, GUIDES ARE PUBLISHED ON https://guides.rubyonrails.org.**
+**DO NOT READ THIS FILE ON GITHUB, GUIDES ARE PUBLISHED ON <https://guides.rubyonrails.org>.**
 
 Ruby on Rails 6.1 Release Notes
 ===============================
@@ -176,7 +176,7 @@ Please refer to the [Changelog][action-view] for detailed changes.
 
 *   Make `locals` argument required on `ActionView::Template#initialize`.
 
-*   The `javascript_include_tag` and `stylesheet_link_tag` asset helpers generate a `Link` header that gives hints to modern browsers about preloading assets. This can be disabled by setting `config.action_view.preload_links_header` to `false`.
+*   The `javascript_include_tag` and `stylesheet_link_tag` asset helpers generate a `link` header that gives hints to modern browsers about preloading assets. This can be disabled by setting `config.action_view.preload_links_header` to `false`.
 
 Action Mailer
 -------------
@@ -300,7 +300,7 @@ Please refer to the [Changelog][active-record] for detailed changes.
 
     ```ruby
     User.where.not(name: "Jon", role: "admin")
-    # SELECT * FROM users WHERE NOT (name == 'Jon' AND role == 'admin')
+    # SELECT * FROM users WHERE NOT (name = 'Jon' AND role = 'admin')
     ```
 
 *   To use the new per-database connection handling applications must change
@@ -440,6 +440,8 @@ Please refer to the [Changelog][action-mailbox] for detailed changes.
 ### Removals
 
 ### Deprecations
+
+*   Deprecate `Rails.application.credentials.action_mailbox.api_key` and `MAILGUN_INGRESS_API_KEY` in favor of `Rails.application.credentials.action_mailbox.signing_key` and `MAILGUN_INGRESS_SIGNING_KEY`.
 
 ### Notable changes
 

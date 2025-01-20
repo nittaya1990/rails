@@ -21,6 +21,10 @@ module ActiveModel
       @attributes[name] = value
     end
 
+    def cast_types
+      attributes.transform_values(&:type)
+    end
+
     def values_before_type_cast
       attributes.transform_values(&:value_before_type_cast)
     end
@@ -37,6 +41,7 @@ module ActiveModel
     def key?(name)
       attributes.key?(name) && self[name].initialized?
     end
+    alias :include? :key?
 
     def keys
       attributes.each_key.select { |name| self[name].initialized? }
@@ -66,7 +71,7 @@ module ActiveModel
     end
 
     def deep_dup
-      AttributeSet.new(attributes.deep_dup)
+      AttributeSet.new(attributes.transform_values(&:dup_or_share))
     end
 
     def initialize_dup(_)
@@ -94,8 +99,12 @@ module ActiveModel
       AttributeSet.new(new_attributes)
     end
 
+    def reverse_merge!(target_attributes)
+      attributes.reverse_merge!(target_attributes.attributes) && self
+    end
+
     def ==(other)
-      attributes == other.attributes
+      other.is_a?(AttributeSet) && attributes == other.send(:attributes)
     end
 
     protected

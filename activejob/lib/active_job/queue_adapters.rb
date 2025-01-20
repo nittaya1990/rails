@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module ActiveJob
-  # == Active Job adapters
+  # = Active Job adapters
   #
   # Active Job has adapters for the following queuing backends:
   #
@@ -12,10 +12,13 @@ module ActiveJob
   # * {Resque}[https://github.com/resque/resque]
   # * {Sidekiq}[https://sidekiq.org]
   # * {Sneakers}[https://github.com/jondot/sneakers]
-  # * {Sucker Punch}[https://github.com/brandonhilkert/sucker_punch]
-  # * {Active Job Async Job}[https://api.rubyonrails.org/classes/ActiveJob/QueueAdapters/AsyncAdapter.html]
-  # * {Active Job Inline}[https://api.rubyonrails.org/classes/ActiveJob/QueueAdapters/InlineAdapter.html]
   # * Please Note: We are not accepting pull requests for new adapters. See the {README}[link:files/activejob/README_md.html] for more details.
+  #
+  # For testing and development Active Job has three built-in adapters:
+  #
+  # * {Active Job Async}[https://api.rubyonrails.org/classes/ActiveJob/QueueAdapters/AsyncAdapter.html]
+  # * {Active Job Inline}[https://api.rubyonrails.org/classes/ActiveJob/QueueAdapters/InlineAdapter.html]
+  # * {Active Job Test}[https://api.rubyonrails.org/classes/ActiveJob/QueueAdapters/TestAdapter.html]
   #
   # === Backends Features
   #
@@ -28,9 +31,9 @@ module ActiveJob
   #   | Resque            | Yes   | Yes    | Yes (Gem)  | Queue      | Global  | Yes     |
   #   | Sidekiq           | Yes   | Yes    | Yes        | Queue      | No      | Job     |
   #   | Sneakers          | Yes   | Yes    | No         | Queue      | Queue   | No      |
-  #   | Sucker Punch      | Yes   | Yes    | Yes        | No         | No      | No      |
   #   | Active Job Async  | Yes   | Yes    | Yes        | No         | No      | No      |
   #   | Active Job Inline | No    | Yes    | N/A        | N/A        | N/A     | N/A     |
+  #   | Active Job Test   | No    | Yes    | N/A        | N/A        | N/A     | N/A     |
   #
   # ==== Async
   #
@@ -106,18 +109,14 @@ module ActiveJob
   # N/A: The adapter does not run in a separate process, and therefore doesn't
   # support retries.
   #
-  # === Async and Inline Queue Adapters
-  #
-  # Active Job has two built-in queue adapters intended for development and
-  # testing: +:async+ and +:inline+.
   module QueueAdapters
     extend ActiveSupport::Autoload
 
+    autoload :AbstractAdapter
     autoload :AsyncAdapter
     autoload :InlineAdapter
     autoload :BackburnerAdapter
     autoload :DelayedJobAdapter
-    autoload :QueAdapter
     autoload :QueueClassicAdapter
     autoload :ResqueAdapter
     autoload :SidekiqAdapter

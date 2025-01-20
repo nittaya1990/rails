@@ -16,7 +16,8 @@ module Arel # :nodoc: all
     end
 
     def set(values)
-      if String === values
+      case values
+      when String, Nodes::BoundSqlLiteral
         @ast.values = [values]
       else
         @ast.values = values.map { |column, value|
@@ -26,6 +27,22 @@ module Arel # :nodoc: all
           )
         }
       end
+      self
+    end
+
+    def group(columns)
+      columns.each do |column|
+        column = Nodes::SqlLiteral.new(column) if String === column
+        column = Nodes::SqlLiteral.new(column.to_s) if Symbol === column
+
+        @ast.groups.push Nodes::Group.new column
+      end
+
+      self
+    end
+
+    def having(expr)
+      @ast.havings << expr
       self
     end
   end

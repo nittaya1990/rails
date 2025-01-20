@@ -1,5 +1,10 @@
 # frozen_string_literal: true
 
+require "models/tag"
+require "models/tagging"
+require "models/comment"
+require "models/category"
+
 class Post < ActiveRecord::Base
   class CategoryPost < ActiveRecord::Base
     self.table_name = "categories_posts"
@@ -34,6 +39,11 @@ class Post < ActiveRecord::Base
 
   scope :limit_by, lambda { |l| limit(l) }
   scope :locked, -> { lock }
+  scope :most_commented, lambda { |comments_count|
+    joins(:comments)
+    .group("posts.id")
+    .having("count(comments.id) >= ?", comments_count)
+  }
 
   belongs_to :author
   belongs_to :readonly_author, -> { readonly }, class_name: "Author", foreign_key: :author_id
@@ -56,6 +66,7 @@ class Post < ActiveRecord::Base
 
   scope :with_comments, -> { preload(:comments) }
   scope :with_tags, -> { preload(:taggings) }
+  scope :with_tags_cte, -> { with(posts_with_tags: where("tags_count > 0")).from("posts_with_tags AS posts") }
 
   scope :tagged_with, ->(id) { joins(:taggings).where(taggings: { tag_id: id }) }
   scope :tagged_with_comment, ->(comment) { joins(:taggings).where(taggings: { comment: comment }) }
@@ -101,6 +112,10 @@ class Post < ActiveRecord::Base
   has_one  :very_special_comment
   has_one  :very_special_comment_with_post, -> { includes(:post) }, class_name: "VerySpecialComment"
   has_one :very_special_comment_with_post_with_joins, -> { joins(:post).order("posts.id") }, class_name: "VerySpecialComment"
+  has_one :very_special_comment_with_string_joins, -> {
+    joins("JOIN posts AS p1 ON comments.post_id = p1.id")
+    .where.not(p1: { id: 999999 })
+  }, class_name: "VerySpecialComment"
   has_many :special_comments
   has_many :nonexistent_comments, -> { where "comments.id < 0" }, class_name: "Comment"
 
@@ -109,8 +124,16 @@ class Post < ActiveRecord::Base
 
   has_many :category_posts, class_name: "CategoryPost"
   has_many :scategories, through: :category_posts, source: :category
+  has_many :hmt_special_categories, -> { where.not(name: nil) },  through: :category_posts, source: :category, class_name: "SpecialCategory"
   has_and_belongs_to_many :categories
   has_and_belongs_to_many :special_categories, join_table: "categories_posts", association_foreign_key: "category_id"
+
+  has_many :essays, through: :categories
+  has_many :authors_of_essays_named_bob,
+    -> { where(name: "Bob") },
+    through: :essays,
+    source: :writer,
+    source_type: "Author"
 
   has_many :taggings, as: :taggable, counter_cache: :tags_count
   has_many :tags, through: :taggings do
@@ -227,6 +250,7 @@ class FirstPost < ActiveRecord::Base
 
   has_many :comments, foreign_key: :post_id
   has_one  :comment,  foreign_key: :post_id
+  has_one  :comment_with_inverse, class_name: "Comment", inverse_of: :post_with_inverse
 end
 
 class PostWithDefaultSelect < ActiveRecord::Base
@@ -321,6 +345,15 @@ end
 class SubConditionalStiPost < ConditionalStiPost
 end
 
+class PostWithDestroyCallback < ActiveRecord::Base
+  self.inheritance_column = :disabled
+  self.table_name = "posts"
+
+  before_destroy do
+    throw :abort if id == 1
+  end
+end
+
 class FakeKlass
   extend ActiveRecord::Delegation::DelegateCache
 
@@ -329,8 +362,12 @@ class FakeKlass
       ActiveRecord::Scoping::ScopeRegistry.instance
     end
 
-    def connection
-      Post.connection
+    def adapter_class
+      Post.adapter_class
+    end
+
+    def lease_connection
+      Post.lease_connection
     end
 
     def table_name
@@ -371,6 +408,9 @@ class FakeKlass
 
     def base_class?
       true
+    end
+
+    def deterministic_encrypted_attributes
     end
   end
 

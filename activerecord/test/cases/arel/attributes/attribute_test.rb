@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require_relative "../helper"
-require "ostruct"
 
 module Arel
   module Attributes
@@ -658,6 +657,16 @@ module Arel
           )
         end
 
+        it "can be constructed with an exclusive range implicitly ending at Infinity" do
+          attribute = Attribute.new nil, nil
+          node = attribute.between(0...)
+
+          _(node).must_equal Nodes::GreaterThanOrEqual.new(
+            attribute,
+            Nodes::Casted.new(0, attribute)
+          )
+        end
+
         it "can be constructed with a quoted range ending at Infinity" do
           attribute = Attribute.new nil, nil
           node = attribute.between(quoted_range(0, ::Float::INFINITY, false))
@@ -666,6 +675,20 @@ module Arel
             attribute,
             Nodes::Quoted.new(0)
           )
+        end
+
+        it "can be constructed with an endless range starting from Infinity" do
+          attribute = Attribute.new nil, nil
+          node = attribute.between(::Float::INFINITY..)
+
+          _(node).must_equal Nodes::In.new(attribute, [])
+        end
+
+        it "can be constructed with a beginless range ending in -Infinity" do
+          attribute = Attribute.new nil, nil
+          node = attribute.between(..-::Float::INFINITY)
+
+          _(node).must_equal Nodes::In.new(attribute, [])
         end
 
         it "can be constructed with an exclusive range" do
@@ -682,6 +705,16 @@ module Arel
               Nodes::Casted.new(3, attribute)
             )
           ])
+        end
+
+        it "can be constructed with a range where the begin and end are equal" do
+          attribute = Attribute.new nil, nil
+          node = attribute.between(1..1)
+
+          _(node).must_equal Nodes::Equality.new(
+            attribute,
+            Nodes::Casted.new(1, attribute)
+          )
         end
       end
 
@@ -770,7 +803,7 @@ module Arel
           node = attribute.not_between(1..3)
 
           _(node).must_equal Nodes::Grouping.new(
-            Nodes::Or.new(
+            Nodes::Or.new([
               Nodes::LessThan.new(
                 attribute,
                 Nodes::Casted.new(1, attribute)
@@ -779,7 +812,7 @@ module Arel
                 attribute,
                 Nodes::Casted.new(3, attribute)
               )
-            )
+            ])
           )
         end
 
@@ -877,12 +910,26 @@ module Arel
           )
         end
 
+        it "can be constructed with an endless range starting from Infinity" do
+          attribute = Attribute.new nil, nil
+          node = attribute.not_between(::Float::INFINITY..)
+
+          _(node).must_equal Nodes::NotIn.new(attribute, [])
+        end
+
+        it "can be constructed with a beginless range ending in -Infinity" do
+          attribute = Attribute.new nil, nil
+          node = attribute.not_between(..-::Float::INFINITY)
+
+          _(node).must_equal Nodes::NotIn.new(attribute, [])
+        end
+
         it "can be constructed with an exclusive range" do
           attribute = Attribute.new nil, nil
           node = attribute.not_between(0...3)
 
           _(node).must_equal Nodes::Grouping.new(
-            Nodes::Or.new(
+            Nodes::Or.new([
               Nodes::LessThan.new(
                 attribute,
                 Nodes::Casted.new(0, attribute)
@@ -891,7 +938,7 @@ module Arel
                 attribute,
                 Nodes::Casted.new(3, attribute)
               )
-            )
+            ])
           )
         end
       end
@@ -1094,7 +1141,7 @@ module Arel
           table = Table.new(:foo, type_caster: fake_caster)
           condition = table["id"].eq("1").and(table["other_id"].eq("2"))
 
-          assert table.able_to_type_cast?
+          assert_predicate table, :able_to_type_cast?
           _(condition.to_sql).must_equal %("foo"."id" = 1 AND "foo"."other_id" = '2')
         end
 
@@ -1106,17 +1153,17 @@ module Arel
           table = Table.new(:foo, type_caster: fake_caster)
           condition = table["id"].eq(Arel.sql("(select 1)"))
 
-          assert table.able_to_type_cast?
+          assert_predicate table, :able_to_type_cast?
           _(condition.to_sql).must_equal %("foo"."id" = (select 1))
         end
       end
 
       private
         def quoted_range(begin_val, end_val, exclude)
-          OpenStruct.new(
-            begin: Nodes::Quoted.new(begin_val),
-            end: Nodes::Quoted.new(end_val),
-            exclude_end?: exclude,
+          Struct.new(:begin, :end, :exclude_end?).new(
+            Nodes::Quoted.new(begin_val),
+            Nodes::Quoted.new(end_val),
+            exclude,
           )
         end
 

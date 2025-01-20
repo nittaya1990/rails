@@ -37,8 +37,6 @@ class TestJSONEncoding < ActiveSupport::TestCase
   end
 
   def test_process_status
-    rubinius_skip "https://github.com/rubinius/rubinius/issues/3334"
-
     # There doesn't seem to be a good way to get a handle on a Process::Status object without actually
     # creating a child process, hence this to populate $?
     system("not_a_real_program_#{SecureRandom.hex}")
@@ -59,6 +57,18 @@ class TestJSONEncoding < ActiveSupport::TestCase
     assert_equal "{\"\\u003c\\u003e\":\"\\u003c\\u003e\"}", ActiveSupport::JSON.encode("<>" => "<>")
   ensure
     ActiveSupport.escape_html_entities_in_json = false
+  end
+
+  def test_hash_keys_encoding_option
+    global_config = ActiveSupport.escape_html_entities_in_json
+
+    ActiveSupport.escape_html_entities_in_json = true
+    assert_equal "{\"<>\":\"<>\"}", ActiveSupport::JSON.encode({ "<>" => "<>" }, escape_html_entities: false)
+
+    ActiveSupport.escape_html_entities_in_json = false
+    assert_equal "{\"\\u003c\\u003e\":\"\\u003c\\u003e\"}", ActiveSupport::JSON.encode({ "<>" => "<>" }, escape_html_entities: true)
+  ensure
+    ActiveSupport.escape_html_entities_in_json = global_config
   end
 
   def test_utf8_string_encoded_properly
@@ -334,6 +344,15 @@ class TestJSONEncoding < ActiveSupport::TestCase
 
     assert_equal({ "name" => "David", "date" => "2010-01-01" },
                  ActiveSupport::JSON.decode(json_string_and_date))
+  end
+
+  def test_data_encoding
+    data = Data.define(:name, :email).new("test", "test@example.com")
+
+    assert_nothing_raised { data.to_json }
+
+    assert_equal({ "name" => "test", "email" => "test@example.com" },
+      ActiveSupport::JSON.decode(data.to_json))
   end
 
   def test_nil_true_and_false_represented_as_themselves

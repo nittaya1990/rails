@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+# :enddoc:
+
 module Rails
   class Conductor::ActionMailbox::InboundEmailsController < Rails::Conductor::BaseController
     def index
@@ -22,14 +24,14 @@ module Rails
       def new_mail
         Mail.new(mail_params.except(:attachments).to_h).tap do |mail|
           mail[:bcc]&.include_in_headers = true
-          mail_params[:attachments].to_a.each do |attachment|
+          mail_params[:attachments]&.select(&:present?)&.each do |attachment|
             mail.add_file(filename: attachment.original_filename, content: attachment.read)
           end
         end
       end
 
       def mail_params
-        params.require(:mail).permit(:from, :to, :cc, :bcc, :x_original_to, :in_reply_to, :subject, :body, attachments: [])
+        params.expect(mail: [:from, :to, :cc, :bcc, :x_original_to, :in_reply_to, :subject, :body, attachments: []])
       end
 
       def create_inbound_email(mail)

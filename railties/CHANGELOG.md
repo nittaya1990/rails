@@ -1,171 +1,46 @@
-## Rails 7.0.0.alpha2 (September 15, 2021) ##
+*   Add `application-name` metadata to application layout
 
-*   Fix activestorage dependency in the npm package.
+    The following metatag will be added to `app/views/layouts/application.html.erb`
 
-    *Rafael Mendonça França*
+    ```html
+    <meta name="application-name" content="Name of Rails Application">
+    ```
 
-## Rails 7.0.0.alpha1 (September 15, 2021) ##
+    *Steve Polito*
 
-*   New and upgraded Rails apps no longer generate `config/initializers/application_controller_renderer.rb`
-    or `config/initializers/cookies_serializer.rb`
+*   Use `secret_key_base` from ENV or credentials when present locally.
 
-    The default value for `cookies_serializer` (`:json`) has been moved to `config.load_defaults("7.0")`.
-    The new framework defaults file can be used to upgrade the serializer.
-
-    *Alex Ghiculescu*
-
-*   New applications get a dependency on the new `debug` gem, replacing `byebug`.
-
-    *Xavier Noria*
-
-*   Add SSL support for postgresql in `bin/rails dbconsole`.
-
-    Fixes #43114.
-
-    *Michael Bayucot*
-
-*   Add support for comments above gem declaration in Rails application templates, e.g. `gem("nokogiri", comment: "For XML")`.
-
-    *Linas Juškevičius*
-
-*   The setter `config.autoloader=` has been deleted. `zeitwerk` is the only
-    available autoloading mode.
-
-    *Xavier Noria*
-
-*   `config.autoload_once_paths` can be configured in the body of the
-    application class defined in `config/application.rb` or in the configuration
-    for environments in `config/environments/*`.
-
-    Similarly, engines can configure that collection in the class body of the
-    engine class or in the configuration for environments.
-
-    After that, the collection is frozen, and you can autoload from those paths.
-    They are managed by the `Rails.autoloaders.once` autoloader, which does not
-    reload, only autoloads/eager loads.
-
-    *Xavier Noria*
-
-*   During initialization, you cannot autoload reloadable classes or modules
-    like application models, unless they are wrapped in a `to_prepare` block.
-    For example, from `config/initializers/*`, or in application, engines, or
-    railties initializers.
-
-    Please check the [autoloading
-    guide](https://guides.rubyonrails.org/v7.0/autoloading_and_reloading_constants.html#autoloading-when-the-application-boots)
-    for details.
-
-    *Xavier Noria*
-
-*   While they are allowed to have elements in common, it is no longer required
-    that `config.autoload_once_paths` is a subset of `config.autoload_paths`.
-    The former are managed by the `once` autoloader. The `main` autoloader
-    manages the latter minus the former.
-
-    *Xavier Noria*
-
-*   Show Rake task description if command is run with `-h`.
-
-    Adding `-h` (or `--help`) to a Rails command that's a Rake task now outputs
-    the task description instead of the general Rake help.
+    When ENV["SECRET_KEY_BASE"] or
+    `Rails.application.credentials.secret_key_base` is set for test or
+    development, it is used for the `Rails.config.secret_key_base`,
+    instead of generating a `tmp/local_secret.txt` file.
 
     *Petrik de Heus*
 
-*   Add missing `plugin new` command to help.
+*   The authentication generator's `SessionsController` sets the `Clear-Site-Data` header on logout.
 
-    *Petrik de Heus
+    By default the header will be set to `"cache","storage"` to help prevent data leakage after
+    logout via the browser's "back/forward cache".
 
-*   Fix `config_for` error when there's only a shared root array.
+    *Mike Dalessio*
 
-    *Loïc Delmaire*
+*   Introduce `RAILS_MASTER_KEY` placeholder in generated ci.yml files
 
-*   Raise an error in generators if an index type is invalid.
+    *Steve Polito*
 
-    *Petrik de Heus*
+*   Colorize the Rails console prompt even on non standard environments.
 
-*   `package.json` now uses a strict version constraint for Rails JavaScript packages on new Rails apps.
+    *Lorenzo Zabot*
 
-    *Zachary Scott*, *Alex Ghiculescu*
+*   Don't enable YJIT in development and test environments
 
-*   Modified scaffold generator template so that running
-    `rails g scaffold Author` no longer generates tests called "creating
-    a Author", "updating a Author", and "destroying a Author".
+    Development and test environments tend to reload code and redefine methods (e.g. mocking),
+    hence YJIT isn't generally faster in these environments.
 
-    Fixes #40744.
+    *Ali Ismayilov*, *Jean Boussier*
 
-    *Michael Duchemin*
-
-*   Raise an error in generators if a field type is invalid.
+*   Only include PermissionsPolicy::Middleware if policy is configured.
 
     *Petrik de Heus*
 
-*   `bin/rails tmp:clear` deletes also files and directories in `tmp/storage`.
-
-    *George Claghorn*
-
-*   Fix compatibility with `psych >= 4`.
-
-    Starting in Psych 4.0.0 `YAML.load` behaves like `YAML.safe_load`. To preserve compatibility
-    `Rails.application.config_for` now uses `YAML.unsafe_load` if available.
-
-    *Jean Boussier*
-
-*   Allow loading nested locales in engines.
-
-    *Gannon McGibbon*
-
-*   Ensure `Rails.application.config_for` always cast hashes to `ActiveSupport::OrderedOptions`.
-
-    *Jean Boussier*
-
-*   Remove `Rack::Runtime` from the default middleware stack and deprecate
-    referencing it in middleware operations without adding it back.
-
-    *Hartley McGuire*
-
-*   Allow adding additional authorized hosts in development via `ENV['RAILS_DEVELOPMENT_HOSTS']`.
-
-    *Josh Abernathy*, *Debbie Milburn*
-
-*   Add app concern and test keepfiles to generated engine plugins.
-
-    *Gannon McGibbon*
-
-*   Stop generating a license for in-app plugins.
-
-    *Gannon McGibbon*
-
-*   `rails app:update` no longer prompts you to overwrite files that are generally modified in the
-    course of developing a Rails app. See [#41083](https://github.com/rails/rails/pull/41083) for
-    the full list of changes.
-
-    *Alex Ghiculescu*
-
-*   Change default branch for new Rails projects and plugins to `main`.
-
-    *Prateek Choudhary*
-
-*   The new method `Rails.benchmark` gives you a quick way to measure and log the execution time taken by a block:
-
-        def test_expensive_stuff
-          Rails.benchmark("test_expensive_stuff") { ... }
-        end
-
-    This functionality was available in some contexts only before.
-
-    *Simon Perepelitsa*
-
-*   Applications generated with `--skip-sprockets` no longer get `app/assets/config/manifest.js` and `app/assets/stylesheets/application.css`.
-
-    *Cindy Gao*
-
-*   Add support for stylesheets and ERB views to `rails stats`.
-
-    *Joel Hawksley*
-
-*   Allow appended root routes to take precedence over internal welcome controller.
-
-    *Gannon McGibbon*
-
-
-Please check [6-1-stable](https://github.com/rails/rails/blob/6-1-stable/railties/CHANGELOG.md) for previous changes.
+Please check [8-0-stable](https://github.com/rails/rails/blob/8-0-stable/railties/CHANGELOG.md) for previous changes.

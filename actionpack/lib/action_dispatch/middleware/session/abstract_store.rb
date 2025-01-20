@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+# :markup: markdown
+
 require "rack/utils"
 require "rack/request"
 require "rack/session/abstract/id"
@@ -67,6 +69,11 @@ module ActionDispatch
     end
 
     module SessionObject # :nodoc:
+      def commit_session(req, res)
+        req.commit_csrf_token
+        super(req, res)
+      end
+
       def prepare_session(req)
         Request::Session.create(self, req, @default_options)
       end

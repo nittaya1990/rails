@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
+require "plugin_helpers"
 require "generators/generators_test_helper"
 require "rails/generators/rails/scaffold/scaffold_generator"
 
 class ScaffoldGeneratorTest < Rails::Generators::TestCase
+  include PluginHelpers
   include GeneratorsTestHelper
   arguments %w(product_line title:string approved:boolean product:belongs_to user:references)
 
@@ -51,11 +53,11 @@ class ScaffoldGeneratorTest < Rails::Generators::TestCase
       end
 
       assert_instance_method :destroy, content do |m|
-        assert_match(/@product_line\.destroy/, m)
+        assert_match(/@product_line\.destroy!/, m)
       end
 
       assert_instance_method :set_product_line, content do |m|
-        assert_match(/@product_line = ProductLine\.find\(params\[:id\]\)/, m)
+        assert_match(/@product_line = ProductLine\.find\(params\.expect\(:id\)\)/, m)
       end
     end
 
@@ -137,7 +139,7 @@ class ScaffoldGeneratorTest < Rails::Generators::TestCase
       end
 
       assert_instance_method :destroy, content do |m|
-        assert_match(/@product_line\.destroy/, m)
+        assert_match(/@product_line\.destroy!/, m)
       end
     end
 
@@ -168,8 +170,8 @@ class ScaffoldGeneratorTest < Rails::Generators::TestCase
     assert_file "test/controllers/product_lines_controller_test.rb" do |content|
       assert_match(/class ProductLinesControllerTest < ActionDispatch::IntegrationTest/, content)
       assert_match(/test "should get index"/, content)
-      assert_match(/post product_lines_url, params: \{ product_line: \{  \} \}/, content)
-      assert_match(/patch product_line_url\(@product_line\), params: \{ product_line: \{  \} \}/, content)
+      assert_match(/post product_lines_url, params: \{ product_line: \{\} \}/, content)
+      assert_match(/patch product_line_url\(@product_line\), params: \{ product_line: \{\} \}/, content)
     end
   end
 
@@ -254,11 +256,11 @@ class ScaffoldGeneratorTest < Rails::Generators::TestCase
       end
 
       assert_instance_method :destroy, content do |m|
-        assert_match(/@admin_role\.destroy/, m)
+        assert_match(/@admin_role\.destroy!/, m)
       end
 
       assert_instance_method :set_admin_role, content do |m|
-        assert_match(/@admin_role = Admin::Role\.find\(params\[:id\]\)/, m)
+        assert_match(/@admin_role = Admin::Role\.find\(params\.expect\(:id\)\)/, m)
       end
     end
 
@@ -270,12 +272,39 @@ class ScaffoldGeneratorTest < Rails::Generators::TestCase
 
     # Views
     assert_file "app/views/admin/roles/index.html.erb" do |content|
-      assert_match(%("New role", new_admin_role_path), content)
+      assert_match %{@admin_roles.each do |admin_role|}, content
+      assert_match %{render admin_role}, content
+      assert_match %{"Show this role", admin_role}, content
+      assert_match %{"New role", new_admin_role_path}, content
     end
 
-    %w(edit new show _form).each do |view|
-      assert_file "app/views/admin/roles/#{view}.html.erb"
+    assert_file "app/views/admin/roles/show.html.erb" do |content|
+      assert_match %{render @admin_role}, content
+      assert_match %{"Edit this role", edit_admin_role_path(@admin_role)}, content
+      assert_match %{"Back to roles", admin_roles_path}, content
+      assert_match %{"Destroy this role", @admin_role}, content
     end
+
+    assert_file "app/views/admin/roles/_role.html.erb" do |content|
+      assert_match "role", content
+      assert_no_match "admin_role", content
+    end
+
+    assert_file "app/views/admin/roles/new.html.erb"  do |content|
+      assert_match %{render "form", admin_role: @admin_role}, content
+      assert_match %{"Back to roles", admin_roles_path}, content
+    end
+
+    assert_file "app/views/admin/roles/edit.html.erb" do |content|
+      assert_match %{render "form", admin_role: @admin_role}, content
+      assert_match %{"Show this role", @admin_role}, content
+      assert_match %{"Back to roles", admin_roles_path}, content
+    end
+
+    assert_file "app/views/admin/roles/_form.html.erb"  do |content|
+      assert_match %{model: admin_role}, content
+    end
+
     assert_no_file "app/views/layouts/admin/roles.html.erb"
 
     # Helpers
@@ -334,8 +363,11 @@ class ScaffoldGeneratorTest < Rails::Generators::TestCase
     route_path = File.expand_path("config/routes.rb", destination_root)
     content = File.read(route_path)
 
-    # Remove all of the comments and blank lines from the routes file
+    # Remove all of the comments, blank lines, and default actions from the routes file
     content.gsub!(/^  \#.*\n/, "")
+    content.gsub!(/^  get "up".*\n/, "")
+    content.gsub!(/^  get "service-worker".*\n/, "")
+    content.gsub!(/^  get "manifest".*\n/, "")
     content.gsub!(/^\n/, "")
 
     File.write(route_path, content)
@@ -398,7 +430,7 @@ class ScaffoldGeneratorTest < Rails::Generators::TestCase
 
     assert_file "app/controllers/accounts_controller.rb" do |content|
       assert_instance_method :account_params, content do |m|
-        assert_match(/permit\(:name, :currency_id, :user_id\)/, m)
+        assert_match(/expect\(account: \[ :name, :currency_id, :user_id \]\)/, m)
       end
     end
 
@@ -408,7 +440,9 @@ class ScaffoldGeneratorTest < Rails::Generators::TestCase
     end
 
     assert_file "app/views/accounts/index.html.erb" do |content|
-      assert_match(/^\W{2}<%= render @accounts %>/, content)
+      assert_match(/^\W{2}<%= @accounts.each do |account| %>/, content)
+      assert_match(/^\W{4}<%= render account %>/, content)
+      assert_match(/<%= link_to "Show this account", account %>/, content)
     end
 
     assert_file "app/views/accounts/show.html.erb" do |content|
@@ -427,7 +461,7 @@ class ScaffoldGeneratorTest < Rails::Generators::TestCase
 
     assert_file "app/controllers/messages_controller.rb" do |content|
       assert_instance_method :message_params, content do |m|
-        assert_match(/permit\(:video, photos: \[\], images: \[\]\)/, m)
+        assert_match(/expect\(message: \[ :video, photos: \[\], images: \[\] \]\)/, m)
       end
     end
 
@@ -454,12 +488,12 @@ class ScaffoldGeneratorTest < Rails::Generators::TestCase
 
     assert_file "app/controllers/messages_controller.rb" do |content|
       assert_instance_method :message_params, content do |m|
-        assert_match(/permit\(:content\)/, m)
+        assert_match(/expect\(message: \[ :content \]\)/, m)
       end
     end
 
     assert_file "app/views/messages/_form.html.erb" do |content|
-      assert_match(/^\W{4}<%= form\.rich_text_area :content %>/, content)
+      assert_match(/^\W{4}<%= form\.rich_textarea :content %>/, content)
     end
 
     assert_file "test/system/messages_test.rb" do |content|
@@ -502,7 +536,7 @@ class ScaffoldGeneratorTest < Rails::Generators::TestCase
 
     assert_file "app/controllers/users_controller.rb" do |content|
       assert_instance_method :user_params, content do |m|
-        assert_match(/permit\(:name, :password, :password_confirmation\)/, m)
+        assert_match(/expect\(user: \[ :name, :password, :password_confirmation \]\)/, m)
       end
     end
 
@@ -535,25 +569,21 @@ class ScaffoldGeneratorTest < Rails::Generators::TestCase
   end
 
   def test_scaffold_tests_pass_by_default_inside_mountable_engine
-    Dir.chdir(destination_root) { `bundle exec rails plugin new bukkits --mountable` }
-
     engine_path = File.join(destination_root, "bukkits")
 
-    Dir.chdir(engine_path) do
+    with_new_plugin(engine_path, "--mountable") do
       quietly do
         `bin/rails g scaffold User name:string age:integer;
         bin/rails db:migrate`
       end
-      assert_match(/8 runs, 10 assertions, 0 failures, 0 errors/, `bin/rails test 2>&1`)
+      assert_match(/8 runs, 12 assertions, 0 failures, 0 errors/, `bin/rails test 2>&1`)
     end
   end
 
   def test_scaffold_tests_pass_by_default_inside_namespaced_mountable_engine
-    Dir.chdir(destination_root) { `bundle exec rails plugin new bukkits-admin --mountable` }
-
     engine_path = File.join(destination_root, "bukkits-admin")
 
-    Dir.chdir(engine_path) do
+    with_new_plugin(engine_path, "--mountable") do
       quietly do
         `bin/rails g scaffold User name:string age:integer;
         bin/rails db:migrate`
@@ -564,49 +594,43 @@ class ScaffoldGeneratorTest < Rails::Generators::TestCase
         assert_match(/class UsersController < ApplicationController/, content)
       end
 
-      assert_match(/8 runs, 10 assertions, 0 failures, 0 errors/, `bin/rails test 2>&1`)
+      assert_match(/8 runs, 12 assertions, 0 failures, 0 errors/, `bin/rails test 2>&1`)
     end
   end
 
   def test_scaffold_tests_pass_by_default_inside_full_engine
-    Dir.chdir(destination_root) { `bundle exec rails plugin new bukkits --full` }
-
     engine_path = File.join(destination_root, "bukkits")
 
-    Dir.chdir(engine_path) do
+    with_new_plugin(engine_path, "--full") do
       quietly do
         `bin/rails g scaffold User name:string age:integer;
         bin/rails db:migrate`
       end
-      assert_match(/8 runs, 10 assertions, 0 failures, 0 errors/, `bin/rails test 2>&1`)
+      assert_match(/8 runs, 12 assertions, 0 failures, 0 errors/, `bin/rails test 2>&1`)
     end
   end
 
   def test_scaffold_tests_pass_by_default_inside_api_mountable_engine
-    Dir.chdir(destination_root) { `bundle exec rails plugin new bukkits --mountable --api` }
-
     engine_path = File.join(destination_root, "bukkits")
 
-    Dir.chdir(engine_path) do
+    with_new_plugin(engine_path, "--mountable", "--api") do
       quietly do
         `bin/rails g scaffold User name:string age:integer;
         bin/rails db:migrate`
       end
-      assert_match(/6 runs, 8 assertions, 0 failures, 0 errors/, `bin/rails test 2>&1`)
+      assert_match(/6 runs, 10 assertions, 0 failures, 0 errors/, `bin/rails test 2>&1`)
     end
   end
 
   def test_scaffold_tests_pass_by_default_inside_api_full_engine
-    Dir.chdir(destination_root) { `bundle exec rails plugin new bukkits --full --api` }
-
     engine_path = File.join(destination_root, "bukkits")
 
-    Dir.chdir(engine_path) do
+    with_new_plugin(engine_path, "--full", "--api") do
       quietly do
         `bin/rails g scaffold User name:string age:integer;
         bin/rails db:migrate`
       end
-      assert_match(/6 runs, 8 assertions, 0 failures, 0 errors/, `bin/rails test 2>&1`)
+      assert_match(/6 runs, 10 assertions, 0 failures, 0 errors/, `bin/rails test 2>&1`)
     end
   end
 

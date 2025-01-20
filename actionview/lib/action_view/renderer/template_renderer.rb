@@ -49,7 +49,7 @@ module ActionView
             @lookup_context.find_template(options[:template], options[:prefixes], false, keys, @details)
           end
         else
-          raise ArgumentError, "You invoked render but did not give any of :partial, :template, :inline, :file, :plain, :html or :body option."
+          raise ArgumentError, "You invoked render but did not give any of :body, :file, :html, :inline, :partial, :plain, :renderable, or :template option."
         end
       end
 
@@ -60,7 +60,8 @@ module ActionView
           ActiveSupport::Notifications.instrument(
             "render_template.action_view",
             identifier: template.identifier,
-            layout: layout && layout.virtual_path
+            layout: layout && layout.virtual_path,
+            locals: locals
           ) do
             template.render(view, locals) { |*name| view._layout_for(*name) }
           end
@@ -98,14 +99,14 @@ module ActionView
             if layout.start_with?("/")
               raise ArgumentError, "Rendering layouts from an absolute path is not supported."
             else
-              @lookup_context.find_template(layout, nil, false, [], details)
+              @lookup_context.find_template(layout, nil, false, keys, details)
             end
           rescue ActionView::MissingTemplate
             all_details = @details.merge(formats: @lookup_context.default_formats)
-            raise unless template_exists?(layout, nil, false, [], **all_details)
+            raise unless template_exists?(layout, nil, false, keys, **all_details)
           end
         when Proc
-          resolve_layout(layout.call(@lookup_context, formats), keys, formats)
+          resolve_layout(layout.call(@lookup_context, formats, keys), keys, formats)
         else
           layout
         end

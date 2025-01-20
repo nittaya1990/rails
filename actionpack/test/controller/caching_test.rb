@@ -255,19 +255,9 @@ Ciao
   end
 
   def test_fragment_cache_instrumentation
-    payload = nil
-
-    subscriber = proc do |*args|
-      event = ActiveSupport::Notifications::Event.new(*args)
-      payload = event.payload
-    end
-
-    ActiveSupport::Notifications.subscribed(subscriber, "read_fragment.action_controller") do
+    assert_notification("read_fragment.action_controller", controller: "functional_caching", action: "inline_fragment_cached") do
       get :inline_fragment_cached
     end
-
-    assert_equal "functional_caching", payload[:controller]
-    assert_equal "inline_fragment_cached", payload[:action]
   end
 
   def test_html_formatted_fragment_caching
@@ -344,31 +334,8 @@ class CacheHelperOutputBufferTest < ActionController::TestCase
 
     cache_helper.stub :controller, controller do
       cache_helper.stub :output_buffer, output_buffer do
-        assert_called_with cache_helper, :output_buffer=, [output_buffer.class.new(output_buffer)] do
-          assert_nothing_raised do
-            cache_helper.send :fragment_for, "Test fragment name", "Test fragment", &Proc.new { nil }
-          end
-        end
-      end
-    end
-  end
-
-  def test_safe_buffer
-    output_buffer = ActiveSupport::SafeBuffer.new
-    controller = MockController.new
-    cache_helper = Class.new do
-      def self.controller; end
-      def self.output_buffer; end
-      def self.output_buffer=; end
-    end
-    cache_helper.extend(ActionView::Helpers::CacheHelper)
-
-    cache_helper.stub :controller, controller do
-      cache_helper.stub :output_buffer, output_buffer do
-        assert_called_with cache_helper, :output_buffer=, [output_buffer.class.new(output_buffer)] do
-          assert_nothing_raised do
-            cache_helper.send :fragment_for, "Test fragment name", "Test fragment", &Proc.new { nil }
-          end
+        assert_nothing_raised do
+          cache_helper.send :fragment_for, "Test fragment name", "Test fragment", &Proc.new { nil }
         end
       end
     end

@@ -26,12 +26,12 @@ class ActionControllerRequiredParamsTest < ActionController::TestCase
     error = assert_raise ActionController::ParameterMissing do
       post :create, params: { boko: { name: "Mjallo!" } }
     end
-    assert_match "Did you mean?", error.message
+    assert_match "Did you mean?", error.detailed_message
 
     error = assert_raise ActionController::ParameterMissing do
       post :create, params: { book: { naem: "Mjallo!" } }
     end
-    assert_match "Did you mean?", error.message
+    assert_match "Did you mean?", error.detailed_message
   end
 
   test "required parameters that are present will not raise" do

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "active_support/core_ext/object/with"
 require "cases/helper"
 require "models/person"
 
@@ -84,9 +85,8 @@ class ActiveModelI18nTests < ActiveModel::TestCase
     assert_equal "person model", Person.model_name.human
   end
 
-  def test_translated_model_names_with_sti
-    I18n.backend.store_translations "en", activemodel: { models: { child: "child model" } }
-    assert_equal "child model", Child.model_name.human
+  def test_translated_model_when_missing_translation
+    assert_equal "Person", Person.model_name.human
   end
 
   def test_translated_model_with_namespace
@@ -94,9 +94,26 @@ class ActiveModelI18nTests < ActiveModel::TestCase
     assert_equal "gender model", Person::Gender.model_name.human
   end
 
-  def test_translated_model_names_with_ancestors_fallback
+  def test_translated_subclass_model
+    I18n.backend.store_translations "en", activemodel: { models: { child: "child model" } }
+    assert_equal "child model", Child.model_name.human
+  end
+
+  def test_translated_subclass_model_when_ancestor_translation
     I18n.backend.store_translations "en", activemodel: { models: { person: "person model" } }
     assert_equal "person model", Child.model_name.human
+  end
+
+  def test_translated_subclass_model_when_missing_translation
+    assert_equal "Child", Child.model_name.human
+  end
+
+  def test_translated_model_with_default_value_when_missing_translation
+    assert_equal "dude", Person.model_name.human(default: "dude")
+  end
+
+  def test_translated_model_with_default_key_when_missing_both_translations
+    assert_equal "Person", Person.model_name.human(default: :this_key_does_not_exist)
   end
 
   def test_human_does_not_modify_options
@@ -109,5 +126,13 @@ class ActiveModelI18nTests < ActiveModel::TestCase
     options = { default: "Cool gender" }
     Person.human_attribute_name("gender", options)
     assert_equal({ default: "Cool gender" }, options)
+  end
+
+  def test_raise_on_missing_translations
+    ActiveModel::Translation.with(raise_on_missing_translations: true) do
+      assert_raises I18n::MissingTranslationData do
+        Person.human_attribute_name("name")
+      end
+    end
   end
 end

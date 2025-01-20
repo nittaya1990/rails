@@ -4,8 +4,8 @@
 })(this, (function(exports) {
   "use strict";
   var adapters = {
-    logger: self.console,
-    WebSocket: self.WebSocket
+    logger: typeof console !== "undefined" ? console : undefined,
+    WebSocket: typeof WebSocket !== "undefined" ? WebSocket : undefined
   };
   var logger = {
     log(...messages) {
@@ -43,12 +43,11 @@
     isRunning() {
       return this.startedAt && !this.stoppedAt;
     }
-    recordPing() {
+    recordMessage() {
       this.pingedAt = now();
     }
     recordConnect() {
       this.reconnectAttempts = 0;
-      this.recordPing();
       delete this.disconnectedAt;
       logger.log("ConnectionMonitor recorded connect");
     }
@@ -121,7 +120,8 @@
     disconnect_reasons: {
       unauthorized: "unauthorized",
       invalid_request: "invalid_request",
-      server_restart: "server_restart"
+      server_restart: "server_restart",
+      remote: "remote"
     },
     default_mount_path: "/cable",
     protocols: [ "actioncable-v1-json", "actioncable-unsupported" ]
@@ -150,11 +150,12 @@
         logger.log(`Attempted to open WebSocket, but existing socket is ${this.getState()}`);
         return false;
       } else {
-        logger.log(`Opening WebSocket, current state is ${this.getState()}, subprotocols: ${protocols}`);
+        const socketProtocols = [ ...protocols, ...this.consumer.subprotocols || [] ];
+        logger.log(`Opening WebSocket, current state is ${this.getState()}, subprotocols: ${socketProtocols}`);
         if (this.webSocket) {
           this.uninstallEventHandlers();
         }
-        this.webSocket = new adapters.WebSocket(this.consumer.url, protocols);
+        this.webSocket = new adapters.WebSocket(this.consumer.url, socketProtocols);
         this.installEventHandlers();
         this.monitor.start();
         return true;
@@ -166,7 +167,7 @@
       if (!allowReconnect) {
         this.monitor.stop();
       }
-      if (this.isActive()) {
+      if (this.isOpen()) {
         return this.webSocket.close();
       }
     }
@@ -195,6 +196,9 @@
     }
     isActive() {
       return this.isState("open", "connecting");
+    }
+    triedToReconnect() {
+      return this.monitor.reconnectAttempts > 0;
     }
     isProtocolSupported() {
       return indexOf.call(supportedProtocols, this.getProtocol()) >= 0;
@@ -231,8 +235,12 @@
         return;
       }
       const {identifier: identifier, message: message, reason: reason, reconnect: reconnect, type: type} = JSON.parse(event.data);
+      this.monitor.recordMessage();
       switch (type) {
        case message_types.welcome:
+        if (this.triedToReconnect()) {
+          this.reconnectAttempted = true;
+        }
         this.monitor.recordConnect();
         return this.subscriptions.reload();
 
@@ -243,10 +251,20 @@
         });
 
        case message_types.ping:
-        return this.monitor.recordPing();
+        return null;
 
        case message_types.confirmation:
-        return this.subscriptions.notify(identifier, "connected");
+        this.subscriptions.confirmSubscription(identifier);
+        if (this.reconnectAttempted) {
+          this.reconnectAttempted = false;
+          return this.subscriptions.notify(identifier, "connected", {
+            reconnected: true
+          });
+        } else {
+          return this.subscriptions.notify(identifier, "connected", {
+            reconnected: false
+          });
+        }
 
        case message_types.rejection:
         return this.subscriptions.reject(identifier);
@@ -310,9 +328,46 @@
       return this.consumer.subscriptions.remove(this);
     }
   }
+  class SubscriptionGuarantor {
+    constructor(subscriptions) {
+      this.subscriptions = subscriptions;
+      this.pendingSubscriptions = [];
+    }
+    guarantee(subscription) {
+      if (this.pendingSubscriptions.indexOf(subscription) == -1) {
+        logger.log(`SubscriptionGuarantor guaranteeing ${subscription.identifier}`);
+        this.pendingSubscriptions.push(subscription);
+      } else {
+        logger.log(`SubscriptionGuarantor already guaranteeing ${subscription.identifier}`);
+      }
+      this.startGuaranteeing();
+    }
+    forget(subscription) {
+      logger.log(`SubscriptionGuarantor forgetting ${subscription.identifier}`);
+      this.pendingSubscriptions = this.pendingSubscriptions.filter((s => s !== subscription));
+    }
+    startGuaranteeing() {
+      this.stopGuaranteeing();
+      this.retrySubscribing();
+    }
+    stopGuaranteeing() {
+      clearTimeout(this.retryTimeout);
+    }
+    retrySubscribing() {
+      this.retryTimeout = setTimeout((() => {
+        if (this.subscriptions && typeof this.subscriptions.subscribe === "function") {
+          this.pendingSubscriptions.map((subscription => {
+            logger.log(`SubscriptionGuarantor resubscribing ${subscription.identifier}`);
+            this.subscriptions.subscribe(subscription);
+          }));
+        }
+      }), 500);
+    }
+  }
   class Subscriptions {
     constructor(consumer) {
       this.consumer = consumer;
+      this.guarantor = new SubscriptionGuarantor(this);
       this.subscriptions = [];
     }
     create(channelName, mixin) {
@@ -327,7 +382,7 @@
       this.subscriptions.push(subscription);
       this.consumer.ensureActiveConnection();
       this.notify(subscription, "initialized");
-      this.sendCommand(subscription, "subscribe");
+      this.subscribe(subscription);
       return subscription;
     }
     remove(subscription) {
@@ -345,6 +400,7 @@
       }));
     }
     forget(subscription) {
+      this.guarantor.forget(subscription);
       this.subscriptions = this.subscriptions.filter((s => s !== subscription));
       return subscription;
     }
@@ -352,7 +408,7 @@
       return this.subscriptions.filter((s => s.identifier === identifier));
     }
     reload() {
-      return this.subscriptions.map((subscription => this.sendCommand(subscription, "subscribe")));
+      return this.subscriptions.map((subscription => this.subscribe(subscription)));
     }
     notifyAll(callbackName, ...args) {
       return this.subscriptions.map((subscription => this.notify(subscription, callbackName, ...args)));
@@ -365,6 +421,15 @@
         subscriptions = [ subscription ];
       }
       return subscriptions.map((subscription => typeof subscription[callbackName] === "function" ? subscription[callbackName](...args) : undefined));
+    }
+    subscribe(subscription) {
+      if (this.sendCommand(subscription, "subscribe")) {
+        this.guarantor.guarantee(subscription);
+      }
+    }
+    confirmSubscription(identifier) {
+      logger.log(`Subscription confirmed ${identifier}`);
+      this.findAll(identifier).map((subscription => this.guarantor.forget(subscription)));
     }
     sendCommand(subscription, command) {
       const {identifier: identifier} = subscription;
@@ -379,6 +444,7 @@
       this._url = url;
       this.subscriptions = new Subscriptions(this);
       this.connection = new Connection(this);
+      this.subprotocols = [];
     }
     get url() {
       return createWebSocketURL(this._url);
@@ -398,6 +464,9 @@
       if (!this.connection.isActive()) {
         return this.connection.open();
       }
+    }
+    addSubProtocol(subprotocol) {
+      this.subprotocols = [ ...this.subprotocols, subprotocol ];
     }
   }
   function createWebSocketURL(url) {
@@ -428,6 +497,7 @@
   exports.Consumer = Consumer;
   exports.INTERNAL = INTERNAL;
   exports.Subscription = Subscription;
+  exports.SubscriptionGuarantor = SubscriptionGuarantor;
   exports.Subscriptions = Subscriptions;
   exports.adapters = adapters;
   exports.createConsumer = createConsumer;

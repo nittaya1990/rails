@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+# :markup: markdown
+
 module ActionDispatch
   module Journey # :nodoc:
     module Path # :nodoc:
@@ -32,7 +34,8 @@ module ActionDispatch
         end
 
         def requirements_anchored?
-          # each required param must not be surrounded by a literal, otherwise it isn't simple to chunk-match the url piecemeal
+          # each required param must not be surrounded by a literal, otherwise it isn't
+          # simple to chunk-match the url piecemeal
           terminals = ast.terminals
 
           terminals.each_with_index { |s, index|
@@ -183,22 +186,22 @@ module ActionDispatch
           end
 
           def offsets
-            return @offsets if @offsets
+            @offsets ||= begin
+              offsets = [0]
 
-            @offsets = [0]
+              spec.find_all(&:symbol?).each do |node|
+                node = node.to_sym
 
-            spec.find_all(&:symbol?).each do |node|
-              node = node.to_sym
-
-              if @requirements.key?(node)
-                re = /#{Regexp.union(@requirements[node])}|/
-                @offsets.push((re.match("").length - 1) + @offsets.last)
-              else
-                @offsets << @offsets.last
+                if @requirements.key?(node)
+                  re = /#{Regexp.union(@requirements[node])}|/
+                  offsets.push((re.match("").length - 1) + offsets.last)
+                else
+                  offsets << offsets.last
+                end
               end
-            end
 
-            @offsets
+              offsets
+            end
           end
       end
     end

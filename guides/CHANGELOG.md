@@ -1,16 +1,11 @@
-## Rails 7.0.0.alpha2 (September 15, 2021) ##
+*   In the Active Job bug report template set the queue adapter to the
+    test adapter so that `assert_enqueued_with` can pass.
 
-*   No changes.
+    *Andrew White*
 
+*   Ensure all bug report templates set `config.secret_key_base` to avoid
+    generation of `tmp/local_secret.txt` files when running the report template.
 
-## Rails 7.0.0.alpha1 (September 15, 2021) ##
+    *Andrew White*
 
-*   The autoloading guide for `zeitwerk` mode has been revised.
-
-    *Xavier Noria*
-
-*   The autoloading guide for `classic` mode has been deleted.
-
-    *Xavier Noria*
-
-Please check [6-1-stable](https://github.com/rails/rails/blob/6-1-stable/guides/CHANGELOG.md) for previous changes.
+Please check [8-0-stable](https://github.com/rails/rails/blob/8-0-stable/guides/CHANGELOG.md) for previous changes.

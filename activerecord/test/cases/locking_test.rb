@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "thread"
 require "cases/helper"
 require "models/person"
 require "models/job"
@@ -181,6 +180,7 @@ class OptimisticLockingTest < ActiveRecord::TestCase
     assert_equal 0, p1.lock_version
 
     p1.touch
+
     assert_equal 1, p1.lock_version
     assert_not_predicate p1, :changed?, "Changes should have been cleared"
     assert_predicate p1, :saved_changes?
@@ -291,7 +291,7 @@ class OptimisticLockingTest < ActiveRecord::TestCase
   end
 
   def test_touch_existing_lock_without_default_should_work_with_null_in_the_database
-    ActiveRecord::Base.connection.execute("INSERT INTO lock_without_defaults(title) VALUES('title1')")
+    ActiveRecord::Base.lease_connection.execute("INSERT INTO lock_without_defaults(title) VALUES('title1')")
     t1 = LockWithoutDefault.last
 
     assert_equal 0, t1.lock_version
@@ -303,6 +303,33 @@ class OptimisticLockingTest < ActiveRecord::TestCase
     assert_not_predicate t1, :changed?
     assert_predicate t1, :saved_changes?
     assert_equal ["lock_version", "updated_at"], t1.saved_changes.keys.sort
+  end
+
+  def test_update_lock_version_to_nil_without_validation_or_constraint_raises_error
+    t1 = LockWithoutDefault.create!(title: "title1")
+    assert_raises(RuntimeError, match: locking_column_nil_error_message) { t1.update(lock_version: nil) }
+    assert_raises(RuntimeError, match: locking_column_nil_error_message) { t1.update!(lock_version: nil) }
+  end
+
+  def test_update_lock_version_to_nil_without_validation_raises
+    person = Person.find(1)
+    assert_raises(RuntimeError, match: locking_column_nil_error_message) { person.update(lock_version: nil) }
+    assert_raises(RuntimeError, match: locking_column_nil_error_message) { person.update!(lock_version: nil) }
+  end
+
+  def test_update_lock_version_to_nil_with_validation_does_not_raise_runtime_lock_version_error
+    person = LockVersionValidatedPerson.find(1)
+    assert_nothing_raised { person.update(lock_version: nil) }
+
+    assert_equal ["is not a number"], person.errors[:lock_version]
+  end
+
+  def test_update_bang_lock_version_to_nil_with_validation_does_not_raise_runtime_lock_version_error
+    error = assert_raises(ActiveRecord::RecordInvalid) do
+      LockVersionValidatedPerson.find(1).update!(lock_version: nil)
+    end
+
+    assert_equal ["is not a number"], error.record.errors[:lock_version]
   end
 
   def test_touch_stale_object_with_lock_without_default
@@ -319,7 +346,7 @@ class OptimisticLockingTest < ActiveRecord::TestCase
   end
 
   def test_lock_without_default_should_work_with_null_in_the_database
-    ActiveRecord::Base.connection.execute("INSERT INTO lock_without_defaults(title) VALUES('title1')")
+    ActiveRecord::Base.lease_connection.execute("INSERT INTO lock_without_defaults(title) VALUES('title1')")
     t1 = LockWithoutDefault.last
     t2 = LockWithoutDefault.find(t1.id)
 
@@ -341,7 +368,7 @@ class OptimisticLockingTest < ActiveRecord::TestCase
   end
 
   def test_update_with_lock_version_without_default_should_work_on_dirty_value_before_type_cast
-    ActiveRecord::Base.connection.execute("INSERT INTO lock_without_defaults(title) VALUES('title1')")
+    ActiveRecord::Base.lease_connection.execute("INSERT INTO lock_without_defaults(title) VALUES('title1')")
     t1 = LockWithoutDefault.last
 
     assert_equal 0, t1.lock_version
@@ -358,7 +385,7 @@ class OptimisticLockingTest < ActiveRecord::TestCase
   end
 
   def test_destroy_with_lock_version_without_default_should_work_on_dirty_value_before_type_cast
-    ActiveRecord::Base.connection.execute("INSERT INTO lock_without_defaults(title) VALUES('title1')")
+    ActiveRecord::Base.lease_connection.execute("INSERT INTO lock_without_defaults(title) VALUES('title1')")
     t1 = LockWithoutDefault.last
 
     assert_equal 0, t1.lock_version
@@ -379,7 +406,7 @@ class OptimisticLockingTest < ActiveRecord::TestCase
     assert_equal "title1", t1.title
     assert_equal 0, t1.lock_version
 
-    assert_queries(1) { t1.update(title: "title2") }
+    assert_queries_count(3) { t1.update(title: "title2") }
 
     t1.reload
     assert_equal "title2", t1.title
@@ -387,7 +414,7 @@ class OptimisticLockingTest < ActiveRecord::TestCase
 
     t2 = LockWithoutDefault.new(title: "title1")
 
-    assert_queries(1) { t2.save! }
+    assert_queries_count(3) { t2.save! }
 
     t2.reload
     assert_equal "title1", t2.title
@@ -408,7 +435,7 @@ class OptimisticLockingTest < ActiveRecord::TestCase
   end
 
   def test_lock_with_custom_column_without_default_should_work_with_null_in_the_database
-    ActiveRecord::Base.connection.execute("INSERT INTO lock_without_defaults_cust(title) VALUES('title1')")
+    ActiveRecord::Base.lease_connection.execute("INSERT INTO lock_without_defaults_cust(title) VALUES('title1')")
 
     t1 = LockWithCustomColumnWithoutDefault.last
     t2 = LockWithCustomColumnWithoutDefault.find(t1.id)
@@ -436,7 +463,7 @@ class OptimisticLockingTest < ActiveRecord::TestCase
     assert_equal "title1", t1.title
     assert_equal 0, t1.custom_lock_version
 
-    assert_queries(1) { t1.update(title: "title2") }
+    assert_queries_count(3) { t1.update(title: "title2") }
 
     t1.reload
     assert_equal "title2", t1.title
@@ -444,7 +471,7 @@ class OptimisticLockingTest < ActiveRecord::TestCase
 
     t2 = LockWithCustomColumnWithoutDefault.new(title: "title1")
 
-    assert_queries(1) { t2.save! }
+    assert_queries_count(3) { t2.save! }
 
     t2.reload
     assert_equal "title1", t2.title
@@ -452,18 +479,20 @@ class OptimisticLockingTest < ActiveRecord::TestCase
   end
 
   def test_readonly_attributes
-    assert_equal Set.new([ "name" ]), ReadonlyNameShip.readonly_attributes
+    assert_equal [ "name" ], ReadonlyNameShip.readonly_attributes
 
     s = ReadonlyNameShip.create(name: "unchangeable name")
     s.reload
     assert_equal "unchangeable name", s.name
 
-    s.update(name: "changed name")
+    assert_raises(ActiveRecord::ReadonlyAttributeError) do
+      s.update(name: "changed name")
+    end
     s.reload
     assert_equal "unchangeable name", s.name
   end
 
-  def test_quote_table_name
+  def test_quote_table_name_reserved_word_references
     ref = references(:michael_magician)
     ref.favorite = !ref.favorite
     assert ref.save
@@ -545,7 +574,7 @@ class OptimisticLockingTest < ActiveRecord::TestCase
     assert_not_empty p.treasures
     p.destroy
     assert_empty p.treasures
-    assert_empty RichPerson.connection.select_all("SELECT * FROM peoples_treasures WHERE rich_person_id = 1")
+    assert_empty RichPerson.lease_connection.select_all("SELECT * FROM peoples_treasures WHERE rich_person_id = 1")
   end
 
   def test_yaml_dumping_with_lock_column
@@ -555,6 +584,14 @@ class OptimisticLockingTest < ActiveRecord::TestCase
 
     assert_equal t1.attributes, t2.attributes
   end
+
+  private
+    def locking_column_nil_error_message
+      <<-MSG.squish
+        For optimistic locking, locking_column ('lock_version') can't be nil.
+        Are you missing a default value or validation on 'lock_version'?
+      MSG
+    end
 end
 
 class OptimisticLockingWithSchemaChangeTest < ActiveRecord::TestCase
@@ -608,7 +645,7 @@ class OptimisticLockingWithSchemaChangeTest < ActiveRecord::TestCase
   end
 
   def test_destroy_existing_object_with_locking_column_value_null_in_the_database
-    ActiveRecord::Base.connection.execute("INSERT INTO lock_without_defaults(title) VALUES('title1')")
+    ActiveRecord::Base.lease_connection.execute("INSERT INTO lock_without_defaults(title) VALUES('title1')")
     t1 = LockWithoutDefault.last
 
     assert_equal 0, t1.lock_version
@@ -634,12 +671,12 @@ class OptimisticLockingWithSchemaChangeTest < ActiveRecord::TestCase
 
   private
     def add_counter_column_to(model, col = "test_count")
-      model.connection.add_column model.table_name, col, :integer, null: false, default: 0
+      model.lease_connection.add_column model.table_name, col, :integer, null: false, default: 0
       model.reset_column_information
     end
 
     def remove_counter_column_from(model, col = :test_count)
-      model.connection.remove_column model.table_name, col
+      model.lease_connection.remove_column model.table_name, col
       model.reset_column_information
     end
 
@@ -661,8 +698,8 @@ end
 # is so cumbersome. Will deadlock Ruby threads if the underlying db.execute
 # blocks, so separate script called by Kernel#system is needed.
 # (See exec vs. async_exec in the PostgreSQL adapter.)
-unless in_memory_db?
-  class PessimisticLockingTest < ActiveRecord::TestCase
+class PessimisticLockingTest < ActiveRecord::TestCase
+  unless in_memory_db?
     self.use_transactional_tests = false
     fixtures :people, :readers
 
@@ -673,7 +710,7 @@ unless in_memory_db?
     end
 
     # Test typical find.
-    def test_sane_find_with_lock
+    def test_typical_find_with_lock
       assert_nothing_raised do
         Person.transaction do
           Person.lock.find(1)
@@ -703,16 +740,17 @@ unless in_memory_db?
     def test_lock_raises_when_the_record_is_dirty
       person = Person.find 1
       person.first_name = "fooman"
-      assert_raises(RuntimeError) do
+      error = assert_raises(RuntimeError) do
         person.lock!
       end
+      assert_match(/Changed attributes: "first_name"/, error.message)
     end
 
     def test_locking_in_after_save_callback
       assert_nothing_raised do
         frog = ::Frog.create(name: "Old Frog")
         frog.name = "New Frog"
-        assert_not_deprecated do
+        assert_not_deprecated(ActiveRecord.deprecator) do
           frog.save!
         end
       end
@@ -738,12 +776,41 @@ unless in_memory_db?
       assert_equal old, person.reload.first_name
     end
 
+    def test_with_lock_configures_transaction
+      person = Person.find 1
+      Person.transaction do
+        outer_transaction = Person.lease_connection.transaction_manager.current_transaction
+        assert_equal true, outer_transaction.joinable?
+        person.with_lock(requires_new: true, joinable: false) do
+          current_transaction = Person.lease_connection.transaction_manager.current_transaction
+          assert_not_equal outer_transaction, current_transaction
+          assert_equal false, current_transaction.joinable?
+        end
+      end
+    end
+
     if current_adapter?(:PostgreSQLAdapter)
       def test_lock_sending_custom_lock_statement
         Person.transaction do
           person = Person.find(1)
-          assert_sql(/LIMIT \$?\d FOR SHARE NOWAIT/) do
+          assert_queries_match(/LIMIT \$?\d FOR SHARE NOWAIT/) do
             person.lock!("FOR SHARE NOWAIT")
+          end
+        end
+      end
+
+      def test_with_lock_sets_isolation
+        person = Person.find 1
+        person.with_lock(isolation: :read_uncommitted) do
+          current_transaction = Person.lease_connection.transaction_manager.current_transaction
+          assert_equal :read_uncommitted, current_transaction.isolation_level
+        end
+      end
+
+      def test_with_lock_locks_with_no_args
+        person = Person.find 1
+        assert_queries_match(/LIMIT \$?\d FOR UPDATE/i) do
+          person.with_lock do
           end
         end
       end
@@ -755,29 +822,34 @@ unless in_memory_db?
     end
 
     private
-      def duel(zzz = 5, &block)
+      def duel(&block)
         t0, t1, t2, t3 = nil, nil, nil, nil
+
+        a_wakeup = Concurrent::Event.new
+        b_wakeup = Concurrent::Event.new
 
         a = Thread.new do
           t0 = Time.now
-          Person.transaction do
+          Person.transaction(joinable: false) do
             yield
-            sleep zzz       # block thread 2 for zzz seconds
+            b_wakeup.set
+            a_wakeup.wait
           end
           t1 = Time.now
         end
 
         b = Thread.new do
-          sleep zzz / 2.0   # ensure thread 1 tx starts first
+          b_wakeup.wait
           t2 = Time.now
           Person.transaction(&block)
+          a_wakeup.set
           t3 = Time.now
         end
 
         a.join
         b.join
 
-        assert t1 > t0 + zzz
+        assert t1 > t0
         assert t2 > t0
         assert t3 > t2
         [t0.to_f..t1.to_f, t2.to_f..t3.to_f]

@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 module ActionView
-  # = Action View Cache Helper
   module Helpers # :nodoc:
+    # = Action View Cache \Helpers
     module CacheHelper
       class UncacheableFragmentError < StandardError; end
 
@@ -76,11 +76,11 @@ module ActionView
       #   render 'comments/comments'
       #   render('comments/comments')
       #
-      #   render "header" translates to render("comments/header")
+      #   render "header"        # translates to render("comments/header")
       #
-      #   render(@topic)         translates to render("topics/topic")
-      #   render(topics)         translates to render("topics/topic")
-      #   render(message.topics) translates to render("topics/topic")
+      #   render(@topic)         # translates to render("topics/topic")
+      #   render(topics)         # translates to render("topics/topic")
+      #   render(message.topics) # translates to render("topics/topic")
       #
       # It's not possible to derive all render calls like that, though.
       # Here are a few examples of things that can't be derived:
@@ -92,6 +92,14 @@ module ActionView
       #
       #   render partial: 'attachments/attachment', collection: group_of_attachments
       #   render partial: 'documents/document', collection: @project.documents.where(published: true).order('created_at')
+      #
+      # One last type of dependency can be determined implicitly:
+      #
+      #   render "maintenance_tasks/runs/info/#{run.status}"
+      #
+      # Because the value passed to render ends in interpolation, Action View
+      # will mark all partials within the "maintenance_tasks/runs/info" folder as
+      # dependencies.
       #
       # === Explicit dependencies
       #
@@ -281,30 +289,25 @@ module ActionView
         controller.read_fragment(name, options)
       end
 
-      def write_fragment_for(name, options)
-        pos = output_buffer.length
-        yield
-        output_safe = output_buffer.html_safe?
-        fragment = output_buffer.slice!(pos..-1)
-        if output_safe
-          self.output_buffer = output_buffer.class.new(output_buffer)
-        end
+      def write_fragment_for(name, options, &block)
+        fragment = output_buffer.capture(&block)
         controller.write_fragment(name, fragment, options)
       end
 
-      class CachingRegistry
-        extend ActiveSupport::PerThreadRegistry
+      module CachingRegistry # :nodoc:
+        extend self
 
-        attr_accessor :caching
-        alias caching? caching
+        def caching?
+          ActiveSupport::IsolatedExecutionState[:action_view_caching] ||= false
+        end
 
-        def self.track_caching
-          caching_was = self.caching
-          self.caching = true
+        def track_caching
+          caching_was = ActiveSupport::IsolatedExecutionState[:action_view_caching]
+          ActiveSupport::IsolatedExecutionState[:action_view_caching] = true
 
           yield
         ensure
-          self.caching = caching_was
+          ActiveSupport::IsolatedExecutionState[:action_view_caching] = caching_was
         end
       end
     end

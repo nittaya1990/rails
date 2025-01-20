@@ -3,8 +3,12 @@
 module ActiveRecord
   module Associations
     class JoinDependency # :nodoc:
-      autoload :JoinBase,        "active_record/associations/join_dependency/join_base"
-      autoload :JoinAssociation, "active_record/associations/join_dependency/join_association"
+      extend ActiveSupport::Autoload
+
+      eager_autoload do
+        autoload :JoinBase
+        autoload :JoinAssociation
+      end
 
       class Aliases # :nodoc:
         def initialize(tables)
@@ -57,7 +61,7 @@ module ActiveRecord
         when Hash
           associations.each do |k, v|
             cache = hash[k] ||= {}
-            walk_tree v, cache
+            walk_tree v, cache if v
           end
         else
           raise ConfigurationError, associations.inspect
@@ -186,12 +190,12 @@ module ActiveRecord
         def make_constraints(parent, child, join_type)
           foreign_table = parent.table
           foreign_klass = parent.base_klass
-          child.join_constraints(foreign_table, foreign_klass, join_type, alias_tracker) do |reflection|
-            table, terminated = @joined_tables[reflection]
+          child.join_constraints(foreign_table, foreign_klass, join_type, alias_tracker) do |reflection, remaining_reflection_chain|
+            table, terminated = @joined_tables[remaining_reflection_chain]
             root = reflection == child.reflection
 
             if table && (!root || !terminated)
-              @joined_tables[reflection] = [table, root] if root
+              @joined_tables[remaining_reflection_chain] = [table, root] if root
               next table, true
             end
 
@@ -202,7 +206,7 @@ module ActiveRecord
               root ? name : "#{name}_join"
             end
 
-            @joined_tables[reflection] ||= [table, root] if join_type == Arel::Nodes::OuterJoin
+            @joined_tables[remaining_reflection_chain] ||= [table, root] if join_type == Arel::Nodes::OuterJoin
             table
           end.concat child.children.flat_map { |c| make_constraints(child, c, join_type) }
         end
@@ -248,35 +252,39 @@ module ActiveRecord
               next
             end
 
-            key = aliases.column_alias(node, node.primary_key)
-            id = row[key]
-            if id.nil?
+            if node.primary_key
+              keys = Array(node.primary_key).map { |column| aliases.column_alias(node, column) }
+              id = keys.map { |key| row[key] }
+            else
+              keys = Array(node.reflection.join_primary_key).map { |column| aliases.column_alias(node, column.to_s) }
+              id = keys.map { nil } # Avoid id-based model caching.
+            end
+
+            if keys.any? { |key| row[key].nil? }
               nil_association = ar_parent.association(node.reflection.name)
               nil_association.loaded!
               next
             end
 
-            model = seen[ar_parent][node][id]
-
-            if model
-              construct(model, node, row, seen, model_cache, strict_loading_value)
-            else
+            unless model = seen[ar_parent][node][id]
               model = construct_model(ar_parent, node, row, model_cache, id, strict_loading_value)
-
-              seen[ar_parent][node][id] = model
-              construct(model, node, row, seen, model_cache, strict_loading_value)
+              seen[ar_parent][node][id] = model if id
             end
+
+            construct(model, node, row, seen, model_cache, strict_loading_value)
           end
         end
 
         def construct_model(record, node, row, model_cache, id, strict_loading_value)
           other = record.association(node.reflection.name)
 
-          model = model_cache[node][id] ||=
-            node.instantiate(row, aliases.column_aliases(node)) do |m|
+          unless model = model_cache[node][id]
+            model = node.instantiate(row, aliases.column_aliases(node)) do |m|
               m.strict_loading! if strict_loading_value
               other.set_inverse_instance(m)
             end
+            model_cache[node][id] = model if id
+          end
 
           if node.reflection.collection?
             other.target.push(model)

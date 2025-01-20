@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+# :markup: markdown
+
 require "rack/session/abstract/id"
 
 module ActionDispatch
@@ -78,6 +80,8 @@ module ActionDispatch
         @loaded   = false
         @exists   = nil # We haven't checked yet.
         @enabled  = enabled
+        @id_was = nil
+        @id_was_initialized = false
       end
 
       def id
@@ -105,8 +109,8 @@ module ActionDispatch
         end
       end
 
-      # Returns value of the key stored in the session or
-      # +nil+ if the given key is not found in the session.
+      # Returns value of the key stored in the session or `nil` if the given key is
+      # not found in the session.
       def [](key)
         load_for_read!
         key = key.to_s
@@ -118,8 +122,8 @@ module ActionDispatch
         end
       end
 
-      # Returns the nested value specified by the sequence of keys, returning
-      # +nil+ if any intermediate step is +nil+.
+      # Returns the nested value specified by the sequence of keys, returning `nil` if
+      # any intermediate step is `nil`.
       def dig(*keys)
         load_for_read!
         keys = keys.map.with_index { |key, i| i.zero? ? key.to_s : key }
@@ -151,6 +155,7 @@ module ActionDispatch
         load_for_write!
         @delegate[key.to_s] = value
       end
+      alias store []=
 
       # Clears the session.
       def clear
@@ -167,18 +172,23 @@ module ActionDispatch
 
       # Updates the session with given Hash.
       #
-      #   session.to_hash
-      #   # => {"session_id"=>"e29b9ea315edf98aad94cc78c34cc9b2"}
+      #     session.to_hash
+      #     # => {"session_id"=>"e29b9ea315edf98aad94cc78c34cc9b2"}
       #
-      #   session.update({ "foo" => "bar" })
-      #   # => {"session_id"=>"e29b9ea315edf98aad94cc78c34cc9b2", "foo" => "bar"}
+      #     session.update({ "foo" => "bar" })
+      #     # => {"session_id"=>"e29b9ea315edf98aad94cc78c34cc9b2", "foo" => "bar"}
       #
-      #   session.to_hash
-      #   # => {"session_id"=>"e29b9ea315edf98aad94cc78c34cc9b2", "foo" => "bar"}
+      #     session.to_hash
+      #     # => {"session_id"=>"e29b9ea315edf98aad94cc78c34cc9b2", "foo" => "bar"}
       def update(hash)
+        unless hash.respond_to?(:to_hash)
+          raise TypeError, "no implicit conversion of #{hash.class.name} into Hash"
+        end
+
         load_for_write!
-        @delegate.update hash.stringify_keys
+        @delegate.update hash.to_hash.stringify_keys
       end
+      alias :merge! :update
 
       # Deletes given key from the session.
       def delete(key)
@@ -186,20 +196,20 @@ module ActionDispatch
         @delegate.delete key.to_s
       end
 
-      # Returns value of the given key from the session, or raises +KeyError+
-      # if can't find the given key and no default value is set.
-      # Returns default value if specified.
+      # Returns value of the given key from the session, or raises `KeyError` if can't
+      # find the given key and no default value is set. Returns default value if
+      # specified.
       #
-      #   session.fetch(:foo)
-      #   # => KeyError: key not found: "foo"
+      #     session.fetch(:foo)
+      #     # => KeyError: key not found: "foo"
       #
-      #   session.fetch(:foo, :bar)
-      #   # => :bar
+      #     session.fetch(:foo, :bar)
+      #     # => :bar
       #
-      #   session.fetch(:foo) do
-      #     :bar
-      #   end
-      #   # => :bar
+      #     session.fetch(:foo) do
+      #       :bar
+      #     end
+      #     # => :bar
       def fetch(key, default = Unspecified, &block)
         load_for_read!
         if default == Unspecified
@@ -232,13 +242,13 @@ module ActionDispatch
         @delegate.empty?
       end
 
-      def merge!(other)
-        load_for_write!
-        @delegate.merge!(other)
-      end
-
       def each(&block)
         to_hash.each(&block)
+      end
+
+      def id_was
+        load_for_read!
+        @id_was
       end
 
       private
@@ -260,10 +270,13 @@ module ActionDispatch
 
         def load!
           if enabled?
+            @id_was_initialized = true unless exists?
             id, session = @by.load_session @req
             options[:id] = id
             @delegate.replace(session.stringify_keys)
+            @id_was = id unless @id_was_initialized
           end
+          @id_was_initialized = true
           @loaded = true
         end
     end

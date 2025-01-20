@@ -8,8 +8,9 @@ require "active_support/core_ext/array/wrap"
 require "action_view/helpers/text_helper"
 
 module ActionView
-  # = Action View Form Option Helpers
   module Helpers # :nodoc:
+    # = Action View Form Option \Helpers
+    #
     # Provides a number of methods for turning different kinds of containers into a set of option tags.
     #
     # The <tt>collection_select</tt>, <tt>select</tt> and <tt>time_zone_select</tt> methods take an <tt>options</tt> parameter, a hash:
@@ -104,7 +105,7 @@ module ActionView
       #
       # Example with <tt>@post.person_id => 2</tt>:
       #
-      #   select :post, :person_id, Person.all.collect { |p| [ p.name, p.id ] }, { include_blank: true })
+      #   select :post, :person_id, Person.all.collect { |p| [ p.name, p.id ] }, { include_blank: true }
       #
       # would become:
       #
@@ -500,6 +501,8 @@ module ActionView
       #   <tt><optgroup></tt> label while the second value must be an array of options. The second value can be a
       #   nested array of text-value pairs. See <tt>options_for_select</tt> for more info.
       #    Ex. ["North America",[["United States","US"],["Canada","CA"]]]
+      #   An optional third value can be provided as HTML attributes for the <tt>optgroup</tt>.
+      #    Ex. ["North America",[["United States","US"],["Canada","CA"]], { disabled: "disabled" }]
       # * +selected_key+ - A value equal to the +value+ attribute for one of the <tt><option></tt> tags,
       #   which will have the +selected+ attribute set. Note: It is possible for this value to match multiple options
       #   as you might have the same option in multiple groups. Each will then get <tt>selected="selected"</tt>.
@@ -598,9 +601,9 @@ module ActionView
       #
       # Options:
       # * <tt>:index_as_value</tt> - Defaults to false, set to true to use the indexes from
-      # `I18n.translate("date.day_names")` as the values. By default, Sunday is always 0.
+      #   <tt>I18n.translate("date.day_names")</tt> as the values. By default, Sunday is always 0.
       # * <tt>:day_format</tt> - The I18n key of the array to use for the weekday options.
-      # Defaults to :day_names, set to :abbr_day_names for abbreviations.
+      #   Defaults to +:day_names+, set to +:abbr_day_names+ for abbreviations.
       # * <tt>:beginning_of_week</tt> - Defaults to Date.beginning_of_week.
       #
       # NOTE: Only the option tags are returned, you have to wrap this call in
@@ -683,7 +686,7 @@ module ActionView
       # if a +User+ model has a +category_id+ field and in the form no category is selected, no +category_id+ parameter is sent. So,
       # any strong parameters idiom like:
       #
-      #   params.require(:user).permit(...)
+      #   params.expect(user: [...])
       #
       # will raise an error since no <tt>{user: ...}</tt> will be present.
       #
@@ -720,7 +723,7 @@ module ActionView
       #   end
       #
       # Sample usage (selecting the associated Author for an instance of Post, <tt>@post</tt>):
-      #   collection_check_boxes(:post, :author_ids, Author.all, :id, :name_with_initial)
+      #   collection_checkboxes(:post, :author_ids, Author.all, :id, :name_with_initial)
       #
       # If <tt>@post.author_ids</tt> is already <tt>[1]</tt>, this would return:
       #   <input id="post_author_ids_1" name="post[author_ids][]" type="checkbox" value="1" checked="checked" />
@@ -733,8 +736,8 @@ module ActionView
       #
       # It is also possible to customize the way the elements will be shown by
       # giving a block to the method:
-      #   collection_check_boxes(:post, :author_ids, Author.all, :id, :name_with_initial) do |b|
-      #     b.label { b.check_box }
+      #   collection_checkboxes(:post, :author_ids, Author.all, :id, :name_with_initial) do |b|
+      #     b.label { b.checkbox }
       #   end
       #
       # The argument passed to the block is a special kind of builder for this
@@ -743,17 +746,17 @@ module ActionView
       # Using it, you can change the label and check box display order or even
       # use the label as wrapper, as in the example above.
       #
-      # The builder methods <tt>label</tt> and <tt>check_box</tt> also accept
+      # The builder methods <tt>label</tt> and <tt>checkbox</tt> also accept
       # extra HTML options:
-      #   collection_check_boxes(:post, :author_ids, Author.all, :id, :name_with_initial) do |b|
-      #     b.label(class: "check_box") { b.check_box(class: "check_box") }
+      #   collection_checkboxes(:post, :author_ids, Author.all, :id, :name_with_initial) do |b|
+      #     b.label(class: "checkbox") { b.checkbox(class: "checkbox") }
       #   end
       #
       # There are also three special methods available: <tt>object</tt>, <tt>text</tt> and
       # <tt>value</tt>, which are the current item being rendered, its text and value methods,
       # respectively. You can use them like this:
-      #   collection_check_boxes(:post, :author_ids, Author.all, :id, :name_with_initial) do |b|
-      #      b.label(:"data-value" => b.value) { b.check_box + b.text }
+      #   collection_checkboxes(:post, :author_ids, Author.all, :id, :name_with_initial) do |b|
+      #      b.label(:"data-value" => b.value) { b.checkbox + b.text }
       #   end
       #
       # ==== Gotcha
@@ -776,9 +779,10 @@ module ActionView
       #
       # In the rare case you don't want this hidden field, you can pass the
       # <tt>include_hidden: false</tt> option to the helper method.
-      def collection_check_boxes(object, method, collection, value_method, text_method, options = {}, html_options = {}, &block)
+      def collection_checkboxes(object, method, collection, value_method, text_method, options = {}, html_options = {}, &block)
         Tags::CollectionCheckBoxes.new(object, method, self, collection, value_method, text_method, options, html_options).render(&block)
       end
+      alias_method :collection_check_boxes, :collection_checkboxes
 
       private
         def option_html_attributes(element)
@@ -836,7 +840,7 @@ module ActionView
     class FormBuilder
       # Wraps ActionView::Helpers::FormOptionsHelper#select for form builders:
       #
-      #   <%= form_for @post do |f| %>
+      #   <%= form_with model: @post do |f| %>
       #     <%= f.select :person_id, Person.all.collect { |p| [ p.name, p.id ] }, include_blank: true %>
       #     <%= f.submit %>
       #   <% end %>
@@ -848,7 +852,7 @@ module ActionView
 
       # Wraps ActionView::Helpers::FormOptionsHelper#collection_select for form builders:
       #
-      #   <%= form_for @post do |f| %>
+      #   <%= form_with model: @post do |f| %>
       #     <%= f.collection_select :person_id, Author.all, :id, :name_with_initial, prompt: true %>
       #     <%= f.submit %>
       #   <% end %>
@@ -860,7 +864,7 @@ module ActionView
 
       # Wraps ActionView::Helpers::FormOptionsHelper#grouped_collection_select for form builders:
       #
-      #   <%= form_for @city do |f| %>
+      #   <%= form_with model: @city do |f| %>
       #     <%= f.grouped_collection_select :country_id, @continents, :countries, :name, :id, :name %>
       #     <%= f.submit %>
       #   <% end %>
@@ -872,7 +876,7 @@ module ActionView
 
       # Wraps ActionView::Helpers::FormOptionsHelper#time_zone_select for form builders:
       #
-      #   <%= form_for @user do |f| %>
+      #   <%= form_with model: @user do |f| %>
       #     <%= f.time_zone_select :time_zone, nil, include_blank: true %>
       #     <%= f.submit %>
       #   <% end %>
@@ -884,7 +888,7 @@ module ActionView
 
       # Wraps ActionView::Helpers::FormOptionsHelper#weekday_select for form builders:
       #
-      #   <%= form_for @user do |f| %>
+      #   <%= form_with model: @user do |f| %>
       #     <%= f.weekday_select :weekday, include_blank: true %>
       #     <%= f.submit %>
       #   <% end %>
@@ -894,21 +898,22 @@ module ActionView
         @template.weekday_select(@object_name, method, objectify_options(options), @default_html_options.merge(html_options))
       end
 
-      # Wraps ActionView::Helpers::FormOptionsHelper#collection_check_boxes for form builders:
+      # Wraps ActionView::Helpers::FormOptionsHelper#collection_checkboxes for form builders:
       #
-      #   <%= form_for @post do |f| %>
-      #     <%= f.collection_check_boxes :author_ids, Author.all, :id, :name_with_initial %>
+      #   <%= form_with model: @post do |f| %>
+      #     <%= f.collection_checkboxes :author_ids, Author.all, :id, :name_with_initial %>
       #     <%= f.submit %>
       #   <% end %>
       #
       # Please refer to the documentation of the base helper for details.
-      def collection_check_boxes(method, collection, value_method, text_method, options = {}, html_options = {}, &block)
-        @template.collection_check_boxes(@object_name, method, collection, value_method, text_method, objectify_options(options), @default_html_options.merge(html_options), &block)
+      def collection_checkboxes(method, collection, value_method, text_method, options = {}, html_options = {}, &block)
+        @template.collection_checkboxes(@object_name, method, collection, value_method, text_method, objectify_options(options), @default_html_options.merge(html_options), &block)
       end
+      alias_method :collection_check_boxes, :collection_checkboxes
 
       # Wraps ActionView::Helpers::FormOptionsHelper#collection_radio_buttons for form builders:
       #
-      #   <%= form_for @post do |f| %>
+      #   <%= form_with model: @post do |f| %>
       #     <%= f.collection_radio_buttons :author_id, Author.all, :id, :name_with_initial %>
       #     <%= f.submit %>
       #   <% end %>

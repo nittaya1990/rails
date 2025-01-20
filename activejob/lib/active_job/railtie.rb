@@ -10,6 +10,10 @@ module ActiveJob
     config.active_job.custom_serializers = []
     config.active_job.log_query_tags_around_perform = true
 
+    initializer "active_job.deprecator", before: :load_environment_config do |app|
+      app.deprecators[:active_job] = ActiveJob.deprecator
+    end
+
     initializer "active_job.logger" do
       ActiveSupport.on_load(:active_job) { self.logger = ::Rails.logger }
     end
@@ -21,29 +25,66 @@ module ActiveJob
       end
     end
 
+    initializer "active_job.enqueue_after_transaction_commit" do |app|
+      ActiveSupport.on_load(:active_job) do
+        ActiveSupport.on_load(:active_record) do
+          ActiveJob::Base.include EnqueueAfterTransactionCommit
+
+          if app.config.active_job.key?(:enqueue_after_transaction_commit)
+            ActiveJob.deprecator.warn(<<~MSG.squish)
+              `config.active_job.enqueue_after_transaction_commit` is deprecated and will be removed in Rails 8.1.
+              This configuration can still be set on individual jobs using `self.enqueue_after_transaction_commit=`,
+              but due the nature of this behavior, it is not recommended to be set globally.
+            MSG
+
+            value = case app.config.active_job.enqueue_after_transaction_commit
+            when :always
+              true
+            when :never
+              false
+            else
+              false
+            end
+
+            ActiveJob::Base.enqueue_after_transaction_commit = value
+          end
+        end
+      end
+    end
+
     initializer "active_job.set_configs" do |app|
       options = app.config.active_job
-      options.queue_adapter ||= :async
+      options.queue_adapter ||= (Rails.env.test? ? :test : :async)
+
+      config.after_initialize do
+        options.each do |k, v|
+          k = "#{k}="
+          if ActiveJob.respond_to?(k)
+            ActiveJob.send(k, v)
+          end
+        end
+      end
 
       ActiveSupport.on_load(:active_job) do
         # Configs used in other initializers
         options = options.except(
           :log_query_tags_around_perform,
-          :custom_serializers
+          :custom_serializers,
+          :enqueue_after_transaction_commit
         )
 
-        options.each do  |k, v|
+        options.each do |k, v|
           k = "#{k}="
-          send(k, v) if respond_to? k
+          if ActiveJob.respond_to?(k)
+            ActiveJob.send(k, v)
+          elsif respond_to? k
+            send(k, v)
+          end
         end
       end
 
       ActiveSupport.on_load(:action_dispatch_integration_test) do
         include ActiveJob::TestHelper
-      end
-
-      ActiveSupport.on_load(:active_record) do
-        self.destroy_association_async_job = ActiveRecord::DestroyAssociationAsyncJob
       end
     end
 
@@ -63,15 +104,19 @@ module ActiveJob
         app.config.active_job.log_query_tags_around_perform
 
       if query_logs_tags_enabled
-        app.config.active_record.query_log_tags << :job
-
-        ActiveSupport.on_load(:active_job) do
-          include ActiveJob::QueryTags
-        end
+        app.config.active_record.query_log_tags |= [:job]
 
         ActiveSupport.on_load(:active_record) do
-          ActiveRecord::QueryLogs.taggings[:job] = ->(context) { context[:job].class.name unless context[:job].nil? }
+          ActiveRecord::QueryLogs.taggings = ActiveRecord::QueryLogs.taggings.merge(
+            job: ->(context) { context[:job].class.name if context[:job] }
+          )
         end
+      end
+    end
+
+    initializer "active_job.backtrace_cleaner" do
+      ActiveSupport.on_load(:active_job) do
+        LogSubscriber.backtrace_cleaner = ::Rails.backtrace_cleaner
       end
     end
   end

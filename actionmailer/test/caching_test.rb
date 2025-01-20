@@ -171,19 +171,15 @@ class FunctionalFragmentCachingTest < BaseCachingTest
 
   def test_fragment_cache_instrumentation
     @mailer.enable_fragment_cache_logging = true
-    payload = nil
 
-    subscriber = proc do |*args|
-      event = ActiveSupport::Notifications::Event.new(*args)
-      payload = event.payload
-    end
+    expected_payload = {
+      mailer: "caching_mailer",
+      key: [:views, "caching_mailer/fragment_cache:#{template_digest("caching_mailer/fragment_cache", "html")}", :caching]
+    }
 
-    ActiveSupport::Notifications.subscribed(subscriber, "read_fragment.action_mailer") do
+    assert_notification("read_fragment.action_mailer", expected_payload) do
       @mailer.fragment_cache
     end
-
-    assert_equal "caching_mailer", payload[:mailer]
-    assert_equal [ :views, "caching_mailer/fragment_cache:#{template_digest("caching_mailer/fragment_cache", "html")}", :caching ], payload[:key]
   ensure
     @mailer.enable_fragment_cache_logging = true
   end
@@ -221,31 +217,8 @@ class CacheHelperOutputBufferTest < BaseCachingTest
 
     cache_helper.stub :controller, controller do
       cache_helper.stub :output_buffer, output_buffer do
-        assert_called_with cache_helper, :output_buffer=, [output_buffer.class.new(output_buffer)] do
-          assert_nothing_raised do
-            cache_helper.send :fragment_for, "Test fragment name", "Test fragment", &Proc.new { nil }
-          end
-        end
-      end
-    end
-  end
-
-  def test_safe_buffer
-    output_buffer = ActiveSupport::SafeBuffer.new
-    controller = MockController.new
-    cache_helper = Class.new do
-      def self.controller; end
-      def self.output_buffer; end
-      def self.output_buffer=; end
-    end
-    cache_helper.extend(ActionView::Helpers::CacheHelper)
-
-    cache_helper.stub :controller, controller do
-      cache_helper.stub :output_buffer, output_buffer do
-        assert_called_with cache_helper, :output_buffer=, [output_buffer.class.new(output_buffer)] do
-          assert_nothing_raised do
-            cache_helper.send :fragment_for, "Test fragment name", "Test fragment", &Proc.new { nil }
-          end
+        assert_nothing_raised do
+          cache_helper.send :fragment_for, "Test fragment name", "Test fragment", &Proc.new { nil }
         end
       end
     end
